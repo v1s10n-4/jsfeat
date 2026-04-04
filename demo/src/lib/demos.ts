@@ -1960,6 +1960,550 @@ const touchFlowDemo: DemoDefinition = {
 };
 
 // ---------------------------------------------------------------------------
+// Card Detection
+// ---------------------------------------------------------------------------
+
+let _cardParams: Record<string, any> = {};
+let _cardGray: Matrix | null = null;
+let _cardBlurred: Matrix | null = null;
+let _cardEdges: Matrix | null = null;
+let _cardWarpDst: Matrix | null = null;
+
+/** Convex hull (Andrew's monotone chain). */
+function convexHull(points: { x: number; y: number }[]): { x: number; y: number }[] {
+  const pts = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  if (pts.length <= 1) return pts;
+  const cross = (O: { x: number; y: number }, A: { x: number; y: number }, B: { x: number; y: number }) =>
+    (A.x - O.x) * (B.y - O.y) - (A.y - O.y) * (B.x - O.x);
+  const lower: { x: number; y: number }[] = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0)
+      lower.pop();
+    lower.push(p);
+  }
+  const upper: { x: number; y: number }[] = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0)
+      upper.pop();
+    upper.push(pts[i]);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+/** Douglas-Peucker polygon simplification. */
+function douglasPeucker(points: { x: number; y: number }[], epsilon: number): { x: number; y: number }[] {
+  if (points.length <= 2) return points;
+  let maxDist = 0, maxIdx = 0;
+  const first = points[0], last = points[points.length - 1];
+  const dx = last.x - first.x, dy = last.y - first.y;
+  const lenSq = dx * dx + dy * dy;
+  for (let i = 1; i < points.length - 1; i++) {
+    let dist: number;
+    if (lenSq === 0) {
+      const ddx = points[i].x - first.x, ddy = points[i].y - first.y;
+      dist = Math.sqrt(ddx * ddx + ddy * ddy);
+    } else {
+      const t = Math.max(0, Math.min(1, ((points[i].x - first.x) * dx + (points[i].y - first.y) * dy) / lenSq));
+      const px = first.x + t * dx, py = first.y + t * dy;
+      const ddx = points[i].x - px, ddy = points[i].y - py;
+      dist = Math.sqrt(ddx * ddx + ddy * ddy);
+    }
+    if (dist > maxDist) { maxDist = dist; maxIdx = i; }
+  }
+  if (maxDist > epsilon) {
+    const left = douglasPeucker(points.slice(0, maxIdx + 1), epsilon);
+    const right = douglasPeucker(points.slice(maxIdx), epsilon);
+    return left.slice(0, -1).concat(right);
+  }
+  return [first, last];
+}
+
+/** Polygon area (shoelace formula). */
+function polygonArea(pts: { x: number; y: number }[]): number {
+  let area = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    area += (pts[j].x + pts[i].x) * (pts[j].y - pts[i].y);
+  }
+  return Math.abs(area / 2);
+}
+
+/** Sort 4 corners into top-left, top-right, bottom-right, bottom-left order. */
+function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[] {
+  // Center point
+  const cx = pts.reduce((s, p) => s + p.x, 0) / 4;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / 4;
+  // Sort by angle from center
+  const sorted = pts.slice().sort((a, b) =>
+    Math.atan2(a.y - cy, a.x - cx) - Math.atan2(b.y - cy, b.x - cx),
+  );
+  // Find top-left (smallest x+y sum)
+  let minSum = Infinity, minIdx = 0;
+  for (let i = 0; i < 4; i++) {
+    const s = sorted[i].x + sorted[i].y;
+    if (s < minSum) { minSum = s; minIdx = i; }
+  }
+  // Rotate so TL is first
+  const result = [];
+  for (let i = 0; i < 4; i++) result.push(sorted[(minIdx + i) % 4]);
+  return result;
+}
+
+/**
+ * Compute 3x3 perspective transform from 4 source points to 4 destination points.
+ * Solves the 8-parameter homography using simple Gaussian elimination.
+ */
+function getPerspectiveTransform(
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[],
+): Float64Array {
+  // Build 8x8 system Ah = b
+  const A = new Float64Array(64);
+  const b = new Float64Array(8);
+  for (let i = 0; i < 4; i++) {
+    const sx = src[i].x, sy = src[i].y, dx = dst[i].x, dy = dst[i].y;
+    const r1 = i * 2, r2 = i * 2 + 1;
+    A[r1 * 8 + 0] = sx; A[r1 * 8 + 1] = sy; A[r1 * 8 + 2] = 1;
+    A[r1 * 8 + 3] = 0;  A[r1 * 8 + 4] = 0;  A[r1 * 8 + 5] = 0;
+    A[r1 * 8 + 6] = -dx * sx; A[r1 * 8 + 7] = -dx * sy;
+    b[r1] = dx;
+    A[r2 * 8 + 0] = 0;  A[r2 * 8 + 1] = 0;  A[r2 * 8 + 2] = 0;
+    A[r2 * 8 + 3] = sx; A[r2 * 8 + 4] = sy; A[r2 * 8 + 5] = 1;
+    A[r2 * 8 + 6] = -dy * sx; A[r2 * 8 + 7] = -dy * sy;
+    b[r2] = dy;
+  }
+  // Gaussian elimination with partial pivoting
+  for (let col = 0; col < 8; col++) {
+    let maxRow = col, maxVal = Math.abs(A[col * 8 + col]);
+    for (let row = col + 1; row < 8; row++) {
+      const v = Math.abs(A[row * 8 + col]);
+      if (v > maxVal) { maxVal = v; maxRow = row; }
+    }
+    if (maxRow !== col) {
+      for (let j = 0; j < 8; j++) {
+        const tmp = A[col * 8 + j]; A[col * 8 + j] = A[maxRow * 8 + j]; A[maxRow * 8 + j] = tmp;
+      }
+      const tmp = b[col]; b[col] = b[maxRow]; b[maxRow] = tmp;
+    }
+    const pivot = A[col * 8 + col];
+    if (Math.abs(pivot) < 1e-12) return new Float64Array(9); // singular
+    for (let row = col + 1; row < 8; row++) {
+      const factor = A[row * 8 + col] / pivot;
+      for (let j = col; j < 8; j++) A[row * 8 + j] -= factor * A[col * 8 + j];
+      b[row] -= factor * b[col];
+    }
+  }
+  // Back substitution
+  const h = new Float64Array(8);
+  for (let i = 7; i >= 0; i--) {
+    let s = b[i];
+    for (let j = i + 1; j < 8; j++) s -= A[i * 8 + j] * h[j];
+    h[i] = s / A[i * 8 + i];
+  }
+  // Return 3x3 homography [h0..h7, 1]
+  const H = new Float64Array(9);
+  for (let i = 0; i < 8; i++) H[i] = h[i];
+  H[8] = 1;
+  return H;
+}
+
+/** Warp src grayscale using a 3x3 perspective transform into dst. */
+function warpPerspective(
+  src: Matrix, dst: Matrix, H: Float64Array, fillValue: number,
+): void {
+  const sw = src.cols, sh = src.rows, dw = dst.cols, dh = dst.rows;
+  const sd = src.data, dd = dst.data;
+  // Invert H for backward mapping
+  const h = H;
+  const det = h[0] * (h[4] * h[8] - h[5] * h[7])
+            - h[1] * (h[3] * h[8] - h[5] * h[6])
+            + h[2] * (h[3] * h[7] - h[4] * h[6]);
+  if (Math.abs(det) < 1e-12) { dd.fill(fillValue); return; }
+  const invDet = 1 / det;
+  const iH = new Float64Array(9);
+  iH[0] = (h[4] * h[8] - h[5] * h[7]) * invDet;
+  iH[1] = (h[2] * h[7] - h[1] * h[8]) * invDet;
+  iH[2] = (h[1] * h[5] - h[2] * h[4]) * invDet;
+  iH[3] = (h[5] * h[6] - h[3] * h[8]) * invDet;
+  iH[4] = (h[0] * h[8] - h[2] * h[6]) * invDet;
+  iH[5] = (h[2] * h[3] - h[0] * h[5]) * invDet;
+  iH[6] = (h[3] * h[7] - h[4] * h[6]) * invDet;
+  iH[7] = (h[1] * h[6] - h[0] * h[7]) * invDet;
+  iH[8] = (h[0] * h[4] - h[1] * h[3]) * invDet;
+
+  for (let y = 0; y < dh; y++) {
+    for (let x = 0; x < dw; x++) {
+      const w = iH[6] * x + iH[7] * y + iH[8];
+      const sx = (iH[0] * x + iH[1] * y + iH[2]) / w;
+      const sy = (iH[3] * x + iH[4] * y + iH[5]) / w;
+      const ix = sx | 0, iy = sy | 0;
+      if (ix >= 0 && iy >= 0 && ix < sw - 1 && iy < sh - 1) {
+        const a = sx - ix, b2 = sy - iy;
+        const off = sw * iy + ix;
+        const p0 = sd[off] + a * (sd[off + 1] - sd[off]);
+        const p1 = sd[off + sw] + a * (sd[off + sw + 1] - sd[off + sw]);
+        dd[y * dw + x] = (p0 + b2 * (p1 - p0)) | 0;
+      } else {
+        dd[y * dw + x] = fillValue;
+      }
+    }
+  }
+}
+
+const cardDetectionDemo: DemoDefinition = {
+  id: 'cardDetection',
+  title: 'Trading Card Detection',
+  category: 'Detection',
+  description: 'Detects rectangular cards via edge detection and perspective-corrects them.',
+  controls: [
+    { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 15, step: 2, defaultNum: 5 },
+    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 10, max: 100, step: 1, defaultNum: 30 },
+    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 50, max: 255, step: 1, defaultNum: 100 },
+    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 1000, max: 50000, step: 500, defaultNum: 5000 },
+  ],
+  setup(_canvas, _video, params) {
+    _cardParams = {
+      blurKernel: 5, cannyLow: 30, cannyHigh: 100, minContourArea: 5000,
+      ...params,
+    };
+  },
+  process(ctx, video, w, h, profiler) {
+    ctx.drawImage(video, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+
+    // Allocate buffers
+    if (!_cardGray || _cardGray.cols !== w || _cardGray.rows !== h) {
+      _cardGray = new Matrix(w, h, U8C1);
+      _cardBlurred = new Matrix(w, h, U8C1);
+      _cardEdges = new Matrix(w, h, U8C1);
+    }
+
+    profiler.start('grayscale');
+    jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, _cardGray);
+    profiler.end('grayscale');
+
+    profiler.start('blur');
+    let ks = _cardParams.blurKernel ?? 5;
+    if (ks % 2 === 0) ks += 1;
+    gaussianBlur(_cardGray, _cardBlurred!, ks, 0);
+    profiler.end('blur');
+
+    profiler.start('canny');
+    cannyEdges(_cardBlurred!, _cardEdges!, _cardParams.cannyLow ?? 30, _cardParams.cannyHigh ?? 100);
+    profiler.end('canny');
+
+    // Collect edge pixels (subsample for performance)
+    profiler.start('contour');
+    const edgeData = _cardEdges!.data;
+    const edgePts: { x: number; y: number }[] = [];
+    const step = 2; // subsample
+    for (let y = 0; y < h; y += step) {
+      for (let x = 0; x < w; x += step) {
+        if (edgeData[y * w + x] === 255) {
+          edgePts.push({ x, y });
+        }
+      }
+    }
+
+    let detected = false;
+    let cardCorners: { x: number; y: number }[] = [];
+
+    if (edgePts.length > 20) {
+      // Convex hull -> simplify -> check for quadrilateral
+      const hull = convexHull(edgePts);
+      const perimeter = hull.reduce((sum, p, i) => {
+        const next = hull[(i + 1) % hull.length];
+        const dx = next.x - p.x, dy = next.y - p.y;
+        return sum + Math.sqrt(dx * dx + dy * dy);
+      }, 0);
+      const epsilon = perimeter * 0.02;
+      const simplified = douglasPeucker(hull.concat([hull[0]]), epsilon);
+      // Remove duplicate closing point
+      const poly = simplified.length > 1 &&
+        simplified[0].x === simplified[simplified.length - 1].x &&
+        simplified[0].y === simplified[simplified.length - 1].y
+        ? simplified.slice(0, -1)
+        : simplified;
+
+      if (poly.length === 4) {
+        const area = polygonArea(poly);
+        if (area >= (_cardParams.minContourArea ?? 5000)) {
+          detected = true;
+          cardCorners = sortCorners(poly);
+        }
+      } else if (poly.length > 4) {
+        // Try to find the best 4-point approximation by picking the 4 vertices
+        // that form the largest quadrilateral
+        let bestArea = 0;
+        let bestQuad: { x: number; y: number }[] = [];
+        const n = poly.length;
+        // For small n, brute-force combinations of 4
+        if (n <= 20) {
+          for (let a = 0; a < n - 3; a++) {
+            for (let b = a + 1; b < n - 2; b++) {
+              for (let c = b + 1; c < n - 1; c++) {
+                for (let d = c + 1; d < n; d++) {
+                  const quad = [poly[a], poly[b], poly[c], poly[d]];
+                  const qArea = polygonArea(quad);
+                  if (qArea > bestArea) {
+                    bestArea = qArea;
+                    bestQuad = quad;
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          // For larger n, pick the 4 extreme points
+          let minX = poly[0], maxX = poly[0], minY = poly[0], maxY = poly[0];
+          for (const p of poly) {
+            if (p.x < minX.x) minX = p;
+            if (p.x > maxX.x) maxX = p;
+            if (p.y < minY.y) minY = p;
+            if (p.y > maxY.y) maxY = p;
+          }
+          bestQuad = [minX, maxX, minY, maxY];
+          bestArea = polygonArea(bestQuad);
+        }
+        if (bestArea >= (_cardParams.minContourArea ?? 5000)) {
+          detected = true;
+          cardCorners = sortCorners(bestQuad);
+        }
+      }
+    }
+    profiler.end('contour');
+
+    // Draw green quadrilateral overlay
+    if (detected && cardCorners.length === 4) {
+      ctx.strokeStyle = '#00ff00';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cardCorners[0].x, cardCorners[0].y);
+      for (let i = 1; i < 4; i++) {
+        ctx.lineTo(cardCorners[i].x, cardCorners[i].y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      // Draw corner circles
+      ctx.fillStyle = '#00ff00';
+      for (let i = 0; i < 4; i++) {
+        ctx.beginPath();
+        ctx.arc(cardCorners[i].x, cardCorners[i].y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Perspective warp the detected card region
+      profiler.start('warp');
+      const cardW = 250, cardH = 350;
+      if (!_cardWarpDst || _cardWarpDst.cols !== cardW || _cardWarpDst.rows !== cardH) {
+        _cardWarpDst = new Matrix(cardW, cardH, U8C1);
+      }
+
+      const dstPts = [
+        { x: 0, y: 0 },
+        { x: cardW - 1, y: 0 },
+        { x: cardW - 1, y: cardH - 1 },
+        { x: 0, y: cardH - 1 },
+      ];
+      const H = getPerspectiveTransform(cardCorners, dstPts);
+      warpPerspective(_cardGray!, _cardWarpDst, H, 0);
+      profiler.end('warp');
+
+      // Draw the warped card below the main view
+      const cardX = w - cardW - 10;
+      const cardY = h - cardH - 10;
+      const warpData = _cardWarpDst.data;
+      const outImageData = ctx.getImageData(cardX, cardY, cardW, cardH);
+      const out = outImageData.data;
+      for (let i = 0; i < cardW * cardH; i++) {
+        const v = warpData[i];
+        out[i * 4] = v;
+        out[i * 4 + 1] = v;
+        out[i * 4 + 2] = v;
+        out[i * 4 + 3] = 255;
+      }
+      ctx.putImageData(outImageData, cardX, cardY);
+
+      // Border around warped card
+      ctx.strokeStyle = '#00ff00';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cardX - 1, cardY - 1, cardW + 2, cardH + 2);
+
+      // Label
+      ctx.fillStyle = '#00ff00';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Detected Card', cardX + cardW / 2, cardY - 4);
+    }
+
+    // Status
+    ctx.fillStyle = detected ? '#0f0' : '#f66';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(
+      detected ? `Card detected (${edgePts.length} edge pts)` : `No card found (${edgePts.length} edge pts)`,
+      8, h - 8,
+    );
+  },
+  onParamChange(key, value) {
+    _cardParams[key] = value;
+  },
+  cleanup() {
+    _cardGray = null;
+    _cardBlurred = null;
+    _cardEdges = null;
+    _cardWarpDst = null;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Side-by-Side Compare
+// ---------------------------------------------------------------------------
+
+let _compareParams: Record<string, any> = {};
+let _compareGray: Matrix | null = null;
+let _compareA: Matrix | null = null;
+let _compareB: Matrix | null = null;
+let _compareSobelA: Matrix | null = null;
+let _compareSobelB: Matrix | null = null;
+
+type FilterId = 'grayscale' | 'boxBlur' | 'gaussianBlur' | 'canny' | 'sobel' | 'scharr' | 'equalizeHist';
+
+function applyFilter(
+  id: FilterId, src: Matrix, dst: Matrix, w: number, h: number,
+  sobelBuf: Matrix,
+): void {
+  switch (id) {
+    case 'grayscale':
+      src.copyTo(dst);
+      break;
+    case 'boxBlur':
+      boxBlurGray(src, dst, 4);
+      break;
+    case 'gaussianBlur':
+      gaussianBlur(src, dst, 5, 0);
+      break;
+    case 'canny':
+      cannyEdges(src, dst, 30, 80);
+      break;
+    case 'sobel': {
+      sobelBuf.resize(w, h, 2);
+      sobelDerivatives(src, sobelBuf);
+      const sd = sobelBuf.data, dd = dst.data;
+      for (let i = 0; i < w * h; i++) {
+        dd[i] = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 2);
+      }
+      break;
+    }
+    case 'scharr': {
+      sobelBuf.resize(w, h, 2);
+      scharrDerivatives(src, sobelBuf);
+      const sd2 = sobelBuf.data, dd2 = dst.data;
+      for (let i = 0; i < w * h; i++) {
+        dd2[i] = Math.min(255, (Math.abs(sd2[i * 2]) + Math.abs(sd2[i * 2 + 1])) >> 2);
+      }
+      break;
+    }
+    case 'equalizeHist':
+      equalizeHistogram(src, dst);
+      break;
+  }
+}
+
+const filterOptions: { value: string; label: string }[] = [
+  { value: 'grayscale', label: 'Grayscale' },
+  { value: 'boxBlur', label: 'Box Blur' },
+  { value: 'gaussianBlur', label: 'Gaussian Blur' },
+  { value: 'canny', label: 'Canny' },
+  { value: 'sobel', label: 'Sobel' },
+  { value: 'scharr', label: 'Scharr' },
+  { value: 'equalizeHist', label: 'Equalize Hist' },
+];
+
+const compareDemo: DemoDefinition = {
+  id: 'compare',
+  title: 'Side-by-Side Compare',
+  category: 'Extras',
+  description: 'Compare two filters side by side with an adjustable split.',
+  controls: [
+    { type: 'select', key: 'filterA', label: 'Left Filter', options: filterOptions, defaultStr: 'grayscale' },
+    { type: 'select', key: 'filterB', label: 'Right Filter', options: filterOptions, defaultStr: 'canny' },
+    { type: 'slider', key: 'splitPos', label: 'Split %', min: 0, max: 100, step: 1, defaultNum: 50 },
+  ],
+  setup(_canvas, _video, params) {
+    _compareParams = { filterA: 'grayscale', filterB: 'canny', splitPos: 50, ...params };
+  },
+  process(ctx, video, w, h, profiler) {
+    ctx.drawImage(video, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+
+    // Grayscale source
+    if (!_compareGray || _compareGray.cols !== w || _compareGray.rows !== h) {
+      _compareGray = new Matrix(w, h, U8C1);
+      _compareA = new Matrix(w, h, U8C1);
+      _compareB = new Matrix(w, h, U8C1);
+      _compareSobelA = new Matrix(w, h, S32C2);
+      _compareSobelB = new Matrix(w, h, S32C2);
+    }
+
+    profiler.start('grayscale');
+    jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, _compareGray);
+    profiler.end('grayscale');
+
+    // Apply filters
+    profiler.start('filterA');
+    applyFilter(_compareParams.filterA as FilterId, _compareGray, _compareA!, w, h, _compareSobelA!);
+    profiler.end('filterA');
+
+    profiler.start('filterB');
+    applyFilter(_compareParams.filterB as FilterId, _compareGray, _compareB!, w, h, _compareSobelB!);
+    profiler.end('filterB');
+
+    // Render split-screen
+    const splitX = (((_compareParams.splitPos ?? 50) / 100) * w) | 0;
+    const data = imageData.data;
+    const dA = _compareA!.data, dB = _compareB!.data;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const di = (y * w + x) * 4;
+        const v = x < splitX ? dA[y * w + x] : dB[y * w + x];
+        data[di] = v; data[di + 1] = v; data[di + 2] = v; data[di + 3] = 255;
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // Divider line
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(splitX, 0);
+    ctx.lineTo(splitX, h);
+    ctx.stroke();
+
+    // Labels
+    ctx.fillStyle = '#ff0';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    const nameA = filterOptions.find(o => o.value === _compareParams.filterA)?.label ?? _compareParams.filterA;
+    const nameB = filterOptions.find(o => o.value === _compareParams.filterB)?.label ?? _compareParams.filterB;
+    ctx.fillText(nameA, splitX / 2, 16);
+    ctx.fillText(nameB, splitX + (w - splitX) / 2, 16);
+  },
+  onParamChange(key, value) {
+    _compareParams[key] = value;
+  },
+  cleanup() {
+    _compareGray = null;
+    _compareA = null;
+    _compareB = null;
+    _compareSobelA = null;
+    _compareSobelB = null;
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Full list of demos
 // ---------------------------------------------------------------------------
 
@@ -1981,7 +2525,8 @@ const allDemos: DemoDefinition[] = [
   yape06Demo,
   orbMatchDemo,
 
-  // Face Detection
+  // Detection
+  cardDetectionDemo,
   haarFaceDemo,
   bbfFaceDemo,
 
@@ -1994,6 +2539,7 @@ const allDemos: DemoDefinition[] = [
   homographyDemo,
 
   // Extras
+  compareDemo,
   touchFlowDemo,
 ];
 
