@@ -1,0 +1,14 @@
+{
+  "entryPoints": [
+    "src/core/index.ts",
+    "src/math/index.ts",
+    "src/imgproc/index.ts",
+    "src/features/index.ts",
+    "src/flow/index.ts",
+    "src/detect/index.ts",
+    "src/motion/index.ts",
+    "src/transform/index.ts",
+    "src/cascades/index.ts"
+  ],
+  "out": "docs/api"
+}
