@@ -16,21 +16,35 @@ import { Pyramid } from '../core/pyramid';
 import { DataType, Channel } from '../core/types';
 import { resample, pyrDown } from '../imgproc/imgproc';
 
+/** A raw BBF detection rectangle before grouping. */
 export interface BbfRect {
+  /** Left x coordinate. */
   x: number;
+  /** Top y coordinate. */
   y: number;
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
+  /** Neighbor count (initially 1). */
   neighbor: number;
+  /** Classifier confidence score. */
   confidence: number;
 }
 
+/** A BBF detection rectangle after grouping (averaged bounding box). */
 export interface GroupedRect {
+  /** Left x coordinate (averaged). */
   x: number;
+  /** Top y coordinate (averaged). */
   y: number;
+  /** Width in pixels (averaged). */
   width: number;
+  /** Height in pixels (averaged). */
   height: number;
+  /** Number of raw rectangles merged into this group. */
   neighbors: number;
+  /** Maximum classifier confidence in the group. */
   confidence: number;
 }
 
@@ -53,8 +67,12 @@ let _next = 5;
 let _scaleTo = 1;
 
 /**
- * Preprocess cascade structure -- creates local feature copies
- * to avoid array allocation with each scale.
+ * Preprocess a BBF cascade structure for detection.
+ *
+ * Creates local feature copies to avoid array allocation at each scale.
+ * Must be called once before using the cascade with {@link bbfDetect}.
+ *
+ * @param cascade - BBF cascade classifier data (e.g. from cascades module).
  */
 export function bbfPrepareCascade(cascade: any): void {
   const sn = cascade.stage_classifier.length;
@@ -75,7 +93,16 @@ export function bbfPrepareCascade(cascade: any): void {
 }
 
 /**
- * Build detection pyramid from source image.
+ * Build a multi-scale detection pyramid from a source image.
+ *
+ * The pyramid contains multiple down-sampled versions of the source
+ * image at various scales, used by {@link bbfDetect}.
+ *
+ * @param src - Source Matrix (U8C1 grayscale).
+ * @param minWidth - Minimum detection window width.
+ * @param minHeight - Minimum detection window height.
+ * @param interval - Number of scales per octave (default 4).
+ * @returns The constructed image pyramid.
  */
 export function bbfBuildPyramid(src: Matrix, minWidth: number, minHeight: number, interval: number = 4): Pyramid {
   const sw = src.cols;
@@ -148,7 +175,14 @@ export function bbfBuildPyramid(src: Matrix, minWidth: number, minHeight: number
 }
 
 /**
- * Run BBF detection on a pyramid.
+ * Run BBF (Brightness Binary Feature) detection on a pyramid.
+ *
+ * Evaluates the cascade classifier at each position and scale in
+ * the pyramid, returning all passing detections.
+ *
+ * @param pyramid - Detection pyramid built by {@link bbfBuildPyramid}.
+ * @param cascade - Prepared BBF cascade (must call {@link bbfPrepareCascade} first).
+ * @returns Array of raw detection rectangles.
  */
 export function bbfDetect(pyramid: Pyramid, cascade: any): BbfRect[] {
   const interval = _interval;
@@ -282,7 +316,14 @@ export function bbfDetect(pyramid: Pyramid, cascade: any): BbfRect[] {
 }
 
 /**
- * OpenCV-style rectangle grouping with union-find (BBF variant).
+ * Group overlapping BBF detection rectangles using union-find.
+ *
+ * Merges nearby rectangles into averaged bounding boxes and filters
+ * out small rectangles contained within larger ones.
+ *
+ * @param rects - Array of raw BBF detection rectangles.
+ * @param minNeighbors - Minimum group size to keep (default 1).
+ * @returns Array of grouped detection rectangles.
  */
 export function bbfGroupRectangles(rects: BbfRect[], minNeighbors: number = 1): GroupedRect[] {
   let i: number, j: number, n = rects.length;

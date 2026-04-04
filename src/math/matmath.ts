@@ -9,6 +9,9 @@ import type { Matrix } from '../core/matrix';
 
 /**
  * Set `M` to the identity matrix (diagonal = `value`, rest = 0).
+ *
+ * @param M - Matrix to modify in-place.
+ * @param value - Diagonal value (default 1).
  */
 export function identity(M: Matrix, value: number = 1): void {
   const src = M.data;
@@ -27,7 +30,10 @@ export function identity(M: Matrix, value: number = 1): void {
 }
 
 /**
- * Transpose: At = A'.
+ * Transpose matrix: At = A'.
+ *
+ * @param At - Destination matrix to receive the transpose.
+ * @param A - Source matrix.
  */
 export function transpose(At: Matrix, A: Matrix): void {
   let i = 0,
@@ -47,7 +53,11 @@ export function transpose(At: Matrix, A: Matrix): void {
 }
 
 /**
- * Matrix multiply: C = A * B.
+ * General matrix multiply: C = A * B.
+ *
+ * @param C - Destination matrix.
+ * @param A - Left operand.
+ * @param B - Right operand.
  */
 export function multiply(C: Matrix, A: Matrix, B: Matrix): void {
   let i = 0,
@@ -80,7 +90,11 @@ export function multiply(C: Matrix, A: Matrix, B: Matrix): void {
 }
 
 /**
- * C = A * B' (multiply A by transpose of B).
+ * Multiply A by transpose of B: C = A * B'.
+ *
+ * @param C - Destination matrix.
+ * @param A - Left operand.
+ * @param B - Right operand (transposed implicitly).
  */
 export function multiplyABt(C: Matrix, A: Matrix, B: Matrix): void {
   let i = 0,
@@ -111,7 +125,11 @@ export function multiplyABt(C: Matrix, A: Matrix, B: Matrix): void {
 }
 
 /**
- * C = A' * B (multiply transpose of A by B).
+ * Multiply transpose of A by B: C = A' * B.
+ *
+ * @param C - Destination matrix.
+ * @param A - Left operand (transposed implicitly).
+ * @param B - Right operand.
  */
 export function multiplyAtB(C: Matrix, A: Matrix, B: Matrix): void {
   let i = 0,
@@ -144,7 +162,10 @@ export function multiplyAtB(C: Matrix, A: Matrix, B: Matrix): void {
 }
 
 /**
- * C = A * A' (symmetric result).
+ * Symmetric product: C = A * A'.
+ *
+ * @param C - Destination matrix (symmetric).
+ * @param A - Source matrix.
  */
 export function multiplyAAt(C: Matrix, A: Matrix): void {
   let i = 0,
@@ -179,7 +200,10 @@ export function multiplyAAt(C: Matrix, A: Matrix): void {
 }
 
 /**
- * C = A' * A (symmetric result).
+ * Symmetric product: C = A' * A.
+ *
+ * @param C - Destination matrix (symmetric).
+ * @param A - Source matrix.
  */
 export function multiplyAtA(C: Matrix, A: Matrix): void {
   let i = 0,
@@ -215,7 +239,10 @@ export function multiplyAtA(C: Matrix, A: Matrix): void {
 }
 
 /**
- * Set 3x3 matrix to identity (optimized for exactly 3x3).
+ * Set a 3x3 matrix to identity (optimized, no loops).
+ *
+ * @param M - 3x3 Matrix to modify in-place.
+ * @param value - Diagonal value (default 1).
  */
 export function identity3x3(M: Matrix, value: number = 1): void {
   const dt = M.data;
@@ -225,7 +252,10 @@ export function identity3x3(M: Matrix, value: number = 1): void {
 }
 
 /**
- * Invert a 3x3 matrix using Cramer's rule: `to` = inverse(`from`).
+ * Invert a 3x3 matrix using Cramer's rule.
+ *
+ * @param from - Source 3x3 matrix.
+ * @param to - Destination 3x3 matrix to receive the inverse.
  */
 export function invert3x3(from: Matrix, to: Matrix): void {
   const A = from.data;
@@ -260,7 +290,11 @@ export function invert3x3(from: Matrix, to: Matrix): void {
 }
 
 /**
- * Optimized 3x3 multiply: C = A * B.
+ * Optimized 3x3 matrix multiply: C = A * B.
+ *
+ * @param C - Destination 3x3 matrix.
+ * @param A - Left operand 3x3 matrix.
+ * @param B - Right operand 3x3 matrix.
  */
 export function multiply3x3(C: Matrix, A: Matrix, B: Matrix): void {
   const Cd = C.data;
@@ -298,7 +332,10 @@ export function multiply3x3(C: Matrix, A: Matrix, B: Matrix): void {
 }
 
 /**
- * Determinant of a 3x3 Matrix.
+ * Compute the determinant of a 3x3 Matrix.
+ *
+ * @param M - 3x3 Matrix.
+ * @returns The determinant value.
  */
 export function mat3x3Determinant(M: Matrix): number {
   const md = M.data;
@@ -313,7 +350,18 @@ export function mat3x3Determinant(M: Matrix): number {
 }
 
 /**
- * Determinant of a 3x3 matrix from 9 scalar values.
+ * Compute the determinant of a 3x3 matrix from 9 scalar values.
+ *
+ * @param M11 - Element (1,1).
+ * @param M12 - Element (1,2).
+ * @param M13 - Element (1,3).
+ * @param M21 - Element (2,1).
+ * @param M22 - Element (2,2).
+ * @param M23 - Element (2,3).
+ * @param M31 - Element (3,1).
+ * @param M32 - Element (3,2).
+ * @param M33 - Element (3,3).
+ * @returns The determinant value.
  */
 export function determinant3x3(
   M11: number,

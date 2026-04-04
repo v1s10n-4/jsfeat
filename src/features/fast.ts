@@ -107,7 +107,13 @@ let _threshold = 20;
 
 /**
  * Set the FAST detection threshold (clamped to [0, 255]).
- * Populates the internal threshold_tab used by detection.
+ *
+ * Populates the internal threshold lookup table used by detection.
+ *
+ * Based on: Machine learning for high-speed corner detection by E. Rosten and T. Drummond.
+ *
+ * @param threshold - Intensity threshold value.
+ * @returns The clamped threshold that was set.
  */
 export function setThreshold(threshold: number): number {
   _threshold = Math.min(Math.max(threshold, 0), 255);
@@ -118,11 +124,13 @@ export function setThreshold(threshold: number): number {
 }
 
 /**
- * Detect FAST-16 corners in a single-channel image.
+ * Detect FAST-16 corners in a single-channel image with non-maximum suppression.
  *
- * @param src      Source Matrix (U8C1).
- * @param corners  Pre-allocated array of Keypoint objects.
- * @param border   Border to skip (default 3).
+ * Based on: Machine learning for high-speed corner detection by E. Rosten and T. Drummond.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param corners - Pre-allocated array of Keypoint objects.
+ * @param border - Border to skip in pixels (default 3).
  * @returns Number of detected corners.
  */
 export function detect(src: Matrix, corners: Keypoint[], border: number = 3): number {
@@ -288,12 +296,15 @@ export function detect(src: Matrix, corners: Keypoint[], border: number = 3): nu
 /**
  * Detect FAST corners with threshold handling.
  *
- * Sets the threshold (populating the threshold_tab), then runs detection.
+ * Convenience function that sets the threshold (populating the lookup table),
+ * then runs detection with non-maximum suppression.
  *
- * @param src       Source Matrix (U8C1).
- * @param corners   Pre-allocated array of Keypoint objects.
- * @param threshold Detection threshold (default 20).
- * @param border    Border to skip (default 3).
+ * Based on: Machine learning for high-speed corner detection by E. Rosten and T. Drummond.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param corners - Pre-allocated array of Keypoint objects.
+ * @param threshold - Detection threshold (default 20).
+ * @param border - Border to skip in pixels (default 3).
  * @returns Number of detected corners.
  */
 export function fastCorners(

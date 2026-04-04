@@ -4,6 +4,13 @@
  * Ported from `data_t` in legacy/jsfeat_struct.js (lines 58-74).
  */
 
+/**
+ * A byte-aligned buffer that exposes Uint8, Int32, Float32, and Float64
+ * views of the same underlying ArrayBuffer.
+ *
+ * All allocations are aligned to an 8-byte boundary so that every
+ * typed-array view is valid.
+ */
 export class DataBuffer {
   /** Usable size in bytes (aligned to multiple of 8). */
   size: number;
@@ -20,8 +27,10 @@ export class DataBuffer {
   f64: Float64Array;
 
   /**
-   * @param sizeInBytes  Requested size (will be aligned up to multiple of 8).
-   * @param buffer       Optional pre-existing ArrayBuffer to wrap.
+   * Create a new DataBuffer.
+   *
+   * @param sizeInBytes - Requested size (will be aligned up to multiple of 8).
+   * @param buffer - Optional pre-existing ArrayBuffer to wrap.
    */
   constructor(sizeInBytes: number, buffer?: ArrayBuffer) {
     // Align size to next multiple of 8

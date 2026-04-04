@@ -8,24 +8,39 @@
  * @author Eugene Zatepyakin / http://inspirit.ru/
  */
 
+/** A raw detection rectangle before grouping. */
 export interface HaarRect {
+  /** Left x coordinate. */
   x: number;
+  /** Top y coordinate. */
   y: number;
+  /** Width in pixels. */
   width: number;
+  /** Height in pixels. */
   height: number;
+  /** Neighbor count (initially 1). */
   neighbor: number;
+  /** Classifier confidence score. */
   confidence: number;
 }
 
+/** A detection rectangle after grouping (averaged bounding box). */
 export interface GroupedRect {
+  /** Left x coordinate (averaged). */
   x: number;
+  /** Top y coordinate (averaged). */
   y: number;
+  /** Width in pixels (averaged). */
   width: number;
+  /** Height in pixels (averaged). */
   height: number;
+  /** Number of raw rectangles merged into this group. */
   neighbors: number;
+  /** Maximum classifier confidence in the group. */
   confidence: number;
 }
 
+/** Edge density threshold for Canny pruning in HAAR detection. */
 export const EDGES_DENSITY = 0.07;
 
 function _groupFunc(r1: { x: number; y: number; width: number }, r2: { x: number; y: number; width: number }): boolean {
@@ -40,7 +55,22 @@ function _groupFunc(r1: { x: number; y: number; width: number }, r2: { x: number
 }
 
 /**
- * Detect objects at a single scale.
+ * Detect objects at a single scale using a HAAR cascade classifier.
+ *
+ * Evaluates the cascade at every valid position with the given scale factor.
+ * Optionally uses Canny edge density for early rejection.
+ *
+ * Based on: js-objectdetect by M. Tschirsich.
+ *
+ * @param intSum - Integral image sum array.
+ * @param intSqsum - Squared integral image array.
+ * @param intTilted - Tilted integral image array.
+ * @param intCannySum - Canny edge integral (or null to disable pruning).
+ * @param width - Image width (integral image width - 1).
+ * @param height - Image height (integral image height - 1).
+ * @param scale - Scale factor to apply to the classifier window.
+ * @param classifier - HAAR cascade classifier data.
+ * @returns Array of raw detection rectangles.
  */
 export function haarDetectSingleScale(
   intSum: Int32Array | Float32Array | number[],
@@ -171,7 +201,23 @@ export function haarDetectSingleScale(
 }
 
 /**
- * Detect objects at multiple scales.
+ * Detect objects at multiple scales using a HAAR cascade classifier.
+ *
+ * Iterates through scales from scaleMin upward, collecting detections
+ * at each scale.
+ *
+ * Based on: js-objectdetect by M. Tschirsich.
+ *
+ * @param intSum - Integral image sum array.
+ * @param intSqsum - Squared integral image array.
+ * @param intTilted - Tilted integral image array.
+ * @param intCannySum - Canny edge integral (or null to disable pruning).
+ * @param width - Image width.
+ * @param height - Image height.
+ * @param classifier - HAAR cascade classifier data.
+ * @param scaleFactor - Scale multiplier between passes (default 1.2).
+ * @param scaleMin - Starting scale (default 1.0).
+ * @returns Array of raw detection rectangles across all scales.
  */
 export function haarDetectMultiScale(
   intSum: Int32Array | Float32Array | number[],
@@ -195,7 +241,14 @@ export function haarDetectMultiScale(
 }
 
 /**
- * OpenCV-style rectangle grouping with union-find.
+ * Group overlapping detection rectangles using union-find.
+ *
+ * Merges nearby rectangles into averaged bounding boxes and filters
+ * out small rectangles contained within larger ones.
+ *
+ * @param rects - Array of raw detection rectangles.
+ * @param minNeighbors - Minimum group size to keep (default 1).
+ * @returns Array of grouped detection rectangles.
  */
 export function groupRectangles(rects: HaarRect[], minNeighbors: number = 1): GroupedRect[] {
   let i: number, j: number, n = rects.length;

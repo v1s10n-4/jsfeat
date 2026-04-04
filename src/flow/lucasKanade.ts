@@ -15,18 +15,23 @@ import { scharrDerivatives } from '../imgproc/imgproc';
 
 /**
  * Track sparse features between two pyramid-based frames using
- * the iterative Lucas-Kanade method.
+ * the iterative Lucas-Kanade method with Scharr gradient computation.
  *
- * @param prevPyr           Previous frame pyramid.
- * @param currPyr           Current frame pyramid.
- * @param prevXY            Previous point positions (interleaved x,y pairs in Float32Array).
- * @param currXY            Current point positions (output, interleaved x,y pairs).
- * @param count             Number of points to track.
- * @param winSize           Window size (default 20).
- * @param maxIter           Maximum iterations per point (default 30).
- * @param status            Output status array: 1 = tracked, 0 = lost (default: new Uint8Array(count)).
- * @param eps               Convergence epsilon (default 0.01).
- * @param minEigenThreshold Minimum eigenvalue threshold (default 0.0001).
+ * Features are tracked from `prevPyr` to `currPyr` at multiple pyramid
+ * levels (coarse-to-fine). Output positions are written to `currXY`.
+ *
+ * Based on: OpenCV Lucas-Kanade optical flow implementation.
+ *
+ * @param prevPyr - Previous frame image pyramid.
+ * @param currPyr - Current frame image pyramid.
+ * @param prevXY - Previous point positions (interleaved x,y pairs in Float32Array).
+ * @param currXY - Current point positions (output, interleaved x,y pairs).
+ * @param count - Number of points to track.
+ * @param winSize - Window size in pixels (default 20).
+ * @param maxIter - Maximum iterations per point per level (default 30).
+ * @param status - Output status array: 1 = tracked, 0 = lost (default: new Uint8Array(count)).
+ * @param eps - Convergence epsilon (default 0.01).
+ * @param minEigenThreshold - Minimum eigenvalue threshold below which tracking fails (default 0.0001).
  */
 export function lucasKanade(
   prevPyr: Pyramid,

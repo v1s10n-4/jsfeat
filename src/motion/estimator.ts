@@ -10,15 +10,26 @@ import { DataType, Channel, U8C1 } from '../core/types';
 import { median } from '../math/math';
 import type { MotionKernel } from './models';
 
+/** Parameters for RANSAC and LMEDS robust estimation. */
 export interface RansacParams {
+  /** Minimum number of points needed to fit the model. */
   size: number;
+  /** Inlier/outlier distance threshold. */
   thresh: number;
+  /** Expected outlier ratio (0..1). */
   eps: number;
+  /** Desired confidence probability (0..1). */
   prob: number;
 }
 
 /**
- * Create RANSAC parameters with defaults.
+ * Create RANSAC/LMEDS parameters with sensible defaults.
+ *
+ * @param size - Minimum model points (default 0).
+ * @param thresh - Inlier threshold (default 0.5).
+ * @param eps - Expected outlier ratio (default 0.5).
+ * @param prob - Desired confidence (default 0.99).
+ * @returns A new RansacParams object.
  */
 export function createRansacParams(
   size: number = 0,
@@ -30,7 +41,12 @@ export function createRansacParams(
 }
 
 /**
- * Update iteration count based on current epsilon.
+ * Update the RANSAC iteration count based on the current outlier ratio.
+ *
+ * @param params - RANSAC parameters.
+ * @param _eps - Current estimated outlier ratio.
+ * @param maxIters - Maximum allowed iterations.
+ * @returns Updated iteration count.
  */
 export function updateIters(params: RansacParams, _eps: number, maxIters: number): number {
   const num = Math.log(1 - params.prob);
@@ -101,7 +117,20 @@ function findInliers(
 }
 
 /**
- * RANSAC robust estimation.
+ * RANSAC (Random Sample Consensus) robust model estimation.
+ *
+ * Iteratively samples minimal subsets, fits models, and selects the
+ * one with the most inliers.
+ *
+ * @param params - RANSAC parameters (size, threshold, epsilon, probability).
+ * @param kernel - Motion kernel providing fit, error, and validation.
+ * @param from - Source point array.
+ * @param to - Destination point array.
+ * @param count - Number of point correspondences.
+ * @param model - Output matrix to receive the best model.
+ * @param mask - Output mask matrix (1 = inlier, 0 = outlier), or null.
+ * @param maxIters - Maximum iterations (default 1000).
+ * @returns True if a valid model was found.
  */
 export function ransac(
   params: RansacParams,
@@ -197,7 +226,20 @@ export function ransac(
 }
 
 /**
- * Least Median of Squares robust estimation.
+ * Least Median of Squares (LMEDS) robust model estimation.
+ *
+ * Selects the model that minimizes the median of squared reprojection
+ * errors across all point correspondences.
+ *
+ * @param params - RANSAC parameters (size is used for minimum points).
+ * @param kernel - Motion kernel providing fit, error, and validation.
+ * @param from - Source point array.
+ * @param to - Destination point array.
+ * @param count - Number of point correspondences.
+ * @param model - Output matrix to receive the best model.
+ * @param mask - Output mask matrix (1 = inlier, 0 = outlier), or null.
+ * @param maxIters - Maximum iterations (default 1000).
+ * @returns True if a valid model was found.
  */
 export function lmeds(
   params: RansacParams,

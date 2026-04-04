@@ -10,17 +10,35 @@ import { DataBuffer } from './data';
 // Pool node
 // ---------------------------------------------------------------------------
 
+/**
+ * A node in the {@link BufferPool} linked list.
+ *
+ * Each node wraps a {@link DataBuffer} and exposes convenience views.
+ */
 export class PoolNode {
+  /** Link to the next node in the pool (null if tail). */
   next: PoolNode | null = null;
+  /** The underlying DataBuffer. */
   data: DataBuffer;
 
+  /** Usable size in bytes. */
   size: number;
+  /** Raw ArrayBuffer. */
   buffer: ArrayBuffer;
+  /** Uint8 view. */
   u8: Uint8Array;
+  /** Int32 view. */
   i32: Int32Array;
+  /** Float32 view. */
   f32: Float32Array;
+  /** Float64 view. */
   f64: Float64Array;
 
+  /**
+   * Create a new PoolNode.
+   *
+   * @param sizeInBytes - Initial buffer size (aligned to 8 bytes).
+   */
   constructor(sizeInBytes: number) {
     this.data   = new DataBuffer(sizeInBytes);
     this.size   = this.data.size;
@@ -31,7 +49,11 @@ export class PoolNode {
     this.f64    = this.data.f64;
   }
 
-  /** Replace the internal DataBuffer and update all convenience views. */
+  /**
+   * Replace the internal DataBuffer and update all convenience views.
+   *
+   * @param sizeInBytes - New buffer size.
+   */
   resize(sizeInBytes: number): void {
     this.data   = new DataBuffer(sizeInBytes);
     this.size   = this.data.size;
@@ -47,13 +69,21 @@ export class PoolNode {
 // Buffer pool
 // ---------------------------------------------------------------------------
 
+/**
+ * A pool of reusable {@link PoolNode} buffers managed as a linked list.
+ *
+ * Buffers are popped from the head and returned to the tail,
+ * providing O(1) allocation without GC pressure.
+ */
 export class BufferPool {
   private _head: PoolNode;
   private _tail: PoolNode;
 
   /**
-   * @param capacity  Number of additional nodes (total = capacity + 1).
-   * @param dataSize  Initial byte-size for each node's DataBuffer.
+   * Create a new BufferPool.
+   *
+   * @param capacity - Number of additional nodes (total = capacity + 1).
+   * @param dataSize - Initial byte-size for each node's DataBuffer.
    */
   constructor(capacity: number, dataSize: number) {
     this._head = new PoolNode(dataSize);
@@ -67,8 +97,11 @@ export class BufferPool {
   }
 
   /**
-   * Pop a node from the head of the pool.  If `sizeInBytes` exceeds the
+   * Pop a node from the head of the pool. If `sizeInBytes` exceeds the
    * node's current size the node is resized first.
+   *
+   * @param sizeInBytes - Minimum required size in bytes.
+   * @returns A PoolNode with at least the requested capacity.
    */
   get(sizeInBytes: number): PoolNode {
     const node = this._head;
@@ -81,7 +114,11 @@ export class BufferPool {
     return node;
   }
 
-  /** Return a node to the tail of the pool. */
+  /**
+   * Return a node to the tail of the pool.
+   *
+   * @param node - The node to release back to the pool.
+   */
   release(node: PoolNode): void {
     this._tail.next = node;
     this._tail = node;
@@ -93,4 +130,5 @@ export class BufferPool {
 // Default singleton (matches legacy: 30 buffers, 640*4 bytes each)
 // ---------------------------------------------------------------------------
 
+/** Default shared buffer pool (31 nodes, 2560 bytes each). */
 export const pool = new BufferPool(30, 640 * 4);

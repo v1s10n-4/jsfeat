@@ -7,6 +7,13 @@
 import { DataBuffer } from './data';
 import { DataType, getChannel, getDataType, getDataTypeSize, type TypedArrayUnion } from './types';
 
+/**
+ * A 2-D matrix backed by a {@link DataBuffer}.
+ *
+ * The element type is determined by the composite type passed at
+ * construction (e.g. `U8C1`, `F32C2`).  The `data` property exposes
+ * a typed-array view matching that element type.
+ */
 export class Matrix {
   /** Data-type flag (upper byte of the composite type). */
   type: number;
@@ -22,10 +29,12 @@ export class Matrix {
   data!: TypedArrayUnion;
 
   /**
-   * @param cols       Number of columns.
-   * @param rows       Number of rows.
-   * @param dataType   Composite type (DataType | Channel).
-   * @param dataBuffer Optional pre-existing DataBuffer.
+   * Create a new Matrix.
+   *
+   * @param cols - Number of columns.
+   * @param rows - Number of rows.
+   * @param dataType - Composite type (DataType | Channel).
+   * @param dataBuffer - Optional pre-existing DataBuffer.
    */
   constructor(cols: number, rows: number, dataType: number, dataBuffer?: DataBuffer) {
     this.type    = getDataType(dataType) | 0;
@@ -48,7 +57,11 @@ export class Matrix {
     this.data   = this._selectView(this.buffer);
   }
 
-  /** Copy this matrix's data into `other` element-by-element. */
+  /**
+   * Copy this matrix's data into `other` element-by-element.
+   *
+   * @param other - Destination matrix (must have at least as many elements).
+   */
   copyTo(other: Matrix): void {
     const od = other.data;
     const td = this.data;
@@ -68,8 +81,12 @@ export class Matrix {
   }
 
   /**
-   * Resize the matrix.  Only re-allocates if the new dimensions exceed the
+   * Resize the matrix. Only re-allocates if the new dimensions exceed the
    * current buffer size.
+   *
+   * @param cols - New number of columns.
+   * @param rows - New number of rows.
+   * @param ch - New channel count (defaults to current).
    */
   resize(cols: number, rows: number, ch?: number): void {
     if (ch === undefined) {

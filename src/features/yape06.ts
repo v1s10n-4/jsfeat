@@ -62,11 +62,15 @@ function hessian_min_eigen_value(
 /**
  * Detect YAPE06 keypoints in a single-channel image.
  *
- * @param src                Source Matrix (U8C1).
- * @param points             Pre-allocated array of Keypoint objects.
- * @param border             Border to skip (default 5).
- * @param laplacianThreshold Threshold for Laplacian extrema (default 30).
- * @param minEigenThreshold  Minimum eigenvalue threshold (default 25).
+ * Uses Laplacian extrema with Hessian-based minimum eigenvalue filtering.
+ *
+ * Based on: YAPE by V. Lepetit, EPFL.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param points - Pre-allocated array of Keypoint objects.
+ * @param border - Border to skip in pixels (default 5).
+ * @param laplacianThreshold - Threshold for Laplacian extrema (default 30).
+ * @param minEigenThreshold - Minimum eigenvalue threshold (default 25).
  * @returns Number of detected keypoints.
  */
 export function yape06Detect(

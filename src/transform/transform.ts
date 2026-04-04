@@ -17,9 +17,27 @@ export { perspective4PointTransform };
 
 /**
  * Compute a 3x3 perspective transform from 4 point pairs.
- * Writes result to a number array (9 elements).
  *
- * Ported line-by-line from legacy/jsfeat_transform.js perspective_4point_transform.
+ * Array-based variant that writes the 9-element result to a plain
+ * number array or typed array, rather than a Matrix.
+ *
+ * @param mat - Output array of at least 9 elements to receive the 3x3 homography.
+ * @param srcX0 - Source point 0 x.
+ * @param srcY0 - Source point 0 y.
+ * @param dstX0 - Destination point 0 x.
+ * @param dstY0 - Destination point 0 y.
+ * @param srcX1 - Source point 1 x.
+ * @param srcY1 - Source point 1 y.
+ * @param dstX1 - Destination point 1 x.
+ * @param dstY1 - Destination point 1 y.
+ * @param srcX2 - Source point 2 x.
+ * @param srcY2 - Source point 2 y.
+ * @param dstX2 - Destination point 2 x.
+ * @param dstY2 - Destination point 2 y.
+ * @param srcX3 - Source point 3 x.
+ * @param srcY3 - Source point 3 y.
+ * @param dstX3 - Destination point 3 x.
+ * @param dstY3 - Destination point 3 y.
  */
 export function perspective4PointTransformArray(
   mat: number[] | Float32Array | Float64Array,
@@ -140,16 +158,27 @@ export function perspective4PointTransformArray(
 }
 
 /**
- * Compute affine transform from 3 point pairs.
+ * Compute a 2x3 affine transform from 3 point pairs using Cramer's rule.
  *
- * Note: The legacy implementation was a stub ("we need linear algebra module
- * first"). This implementation solves the 6-parameter affine system directly:
+ * Solves the 6-parameter affine system:
  *
  *   | dstX |   | a  b  tx | | srcX |
  *   | dstY | = | c  d  ty | | srcY |
  *   |  1   |   | 0  0   1 | |  1   |
  *
- * @param model  Output array of at least 6 elements [a, b, tx, c, d, ty].
+ * @param model - Output array of at least 6 elements [a, b, tx, c, d, ty].
+ * @param srcX0 - Source point 0 x.
+ * @param srcY0 - Source point 0 y.
+ * @param dstX0 - Destination point 0 x.
+ * @param dstY0 - Destination point 0 y.
+ * @param srcX1 - Source point 1 x.
+ * @param srcY1 - Source point 1 y.
+ * @param dstX1 - Destination point 1 x.
+ * @param dstY1 - Destination point 1 y.
+ * @param srcX2 - Source point 2 x.
+ * @param srcY2 - Source point 2 y.
+ * @param dstX2 - Destination point 2 x.
+ * @param dstY2 - Destination point 2 y.
  */
 export function affine3PointTransform(
   model: number[] | Float32Array | Float64Array,
@@ -180,8 +209,8 @@ export function affine3PointTransform(
 /**
  * Invert a 2x3 affine transform.
  *
- * src: [a, b, tx, c, d, ty]  (6 elements)
- * dst: receives the inverse affine (6 elements)
+ * @param src - Input affine [a, b, tx, c, d, ty] (6 elements).
+ * @param dst - Output inverse affine (6 elements).
  */
 export function invertAffineTransform(
   src: number[] | Float32Array | Float64Array,
@@ -202,10 +231,10 @@ export function invertAffineTransform(
 }
 
 /**
- * Invert a 3x3 perspective transform.
+ * Invert a 3x3 perspective (homography) transform.
  *
- * src: [m11..m33] (9 elements)
- * dst: receives the inverse (9 elements)
+ * @param src - Input perspective matrix [m11..m33] (9 elements).
+ * @param dst - Output inverse matrix (9 elements).
  */
 export function invertPerspectiveTransform(
   src: number[] | Float32Array | Float64Array,

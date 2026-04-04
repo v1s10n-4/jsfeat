@@ -13,15 +13,15 @@ import type { TypedArrayUnion } from '../core/types';
 const qsortStack = new Int32Array(48 * 2);
 
 /**
- * Generate a Gaussian kernel.
+ * Generate a 1-D Gaussian kernel.
  *
  * For small odd sizes (1..7) and sigma <= 0, hardcoded kernels are used.
  * Otherwise the kernel is computed via the Gaussian formula.
  *
- * @param size     Kernel size (should be odd).
- * @param sigma    Gaussian sigma (<=0 triggers auto-compute).
- * @param kernel   Output array to fill with kernel values.
- * @param dataType Data-type flag -- if U8, kernel is scaled to sum ~256.
+ * @param size - Kernel size (should be odd).
+ * @param sigma - Gaussian sigma (<=0 triggers auto-compute from size).
+ * @param kernel - Output array to fill with kernel values.
+ * @param dataType - Data-type flag -- if U8, kernel is scaled to integer sum ~256.
  */
 export function getGaussianKernel(
   size: number,
@@ -103,7 +103,25 @@ export function getGaussianKernel(
 /**
  * Compute a 3x3 perspective (homography) transform from 4 point pairs.
  *
- * @param model  3x3 Matrix to receive the result.
+ * The result is written into the provided 3x3 Matrix.
+ *
+ * @param model - 3x3 Matrix to receive the homography result.
+ * @param srcX0 - Source point 0 x coordinate.
+ * @param srcY0 - Source point 0 y coordinate.
+ * @param dstX0 - Destination point 0 x coordinate.
+ * @param dstY0 - Destination point 0 y coordinate.
+ * @param srcX1 - Source point 1 x coordinate.
+ * @param srcY1 - Source point 1 y coordinate.
+ * @param dstX1 - Destination point 1 x coordinate.
+ * @param dstY1 - Destination point 1 y coordinate.
+ * @param srcX2 - Source point 2 x coordinate.
+ * @param srcY2 - Source point 2 y coordinate.
+ * @param dstX2 - Destination point 2 x coordinate.
+ * @param dstY2 - Destination point 2 y coordinate.
+ * @param srcX3 - Source point 3 x coordinate.
+ * @param srcY3 - Source point 3 y coordinate.
+ * @param dstX3 - Destination point 3 x coordinate.
+ * @param dstY3 - Destination point 3 y coordinate.
  */
 export function perspective4PointTransform(
   model: Matrix,
@@ -256,10 +274,10 @@ export function perspective4PointTransform(
  *
  * Sorts `array[low..high]` in-place using the provided comparator.
  *
- * @param array  Array to sort in-place.
- * @param low    Start index (inclusive).
- * @param high   End index (inclusive).
- * @param cmp    Comparator: returns true when a < b (strict less-than).
+ * @param array - Array to sort in-place.
+ * @param low - Start index (inclusive).
+ * @param high - End index (inclusive).
+ * @param cmp - Comparator: returns true when a \< b (strict less-than).
  */
 export function qsort<T>(
   array: T[],
@@ -495,10 +513,10 @@ export function qsort<T>(
  *
  * Partially sorts `array` in-place and returns the median value.
  *
- * @param array  Numeric array (mutated).
- * @param low    Start index.
- * @param high   End index.
- * @returns      The median value.
+ * @param array - Numeric array (mutated in-place).
+ * @param low - Start index (inclusive).
+ * @param high - End index (inclusive).
+ * @returns The median value.
  */
 export function median(array: number[], low: number, high: number): number {
   let w: number;

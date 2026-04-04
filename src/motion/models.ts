@@ -16,9 +16,40 @@ import {
 } from '../math/matmath';
 import { luSolve, eigenVV } from '../math/linalg';
 
+/**
+ * Interface for motion model kernels used by RANSAC and LMEDS estimators.
+ *
+ * A kernel provides model fitting, error computation, and subset validation.
+ */
 export interface MotionKernel {
+  /**
+   * Fit a model from point correspondences.
+   *
+   * @param from - Source points.
+   * @param to - Destination points.
+   * @param model - Output matrix to receive the fitted model.
+   * @param count - Number of point pairs.
+   * @returns 1 on success, 0 on failure.
+   */
   run(from: { x: number; y: number }[], to: { x: number; y: number }[], model: Matrix, count: number): number;
+  /**
+   * Compute reprojection error for each point pair.
+   *
+   * @param from - Source points.
+   * @param to - Destination points.
+   * @param model - Fitted model matrix.
+   * @param err - Output error array (one value per point).
+   * @param count - Number of point pairs.
+   */
   error(from: { x: number; y: number }[], to: { x: number; y: number }[], model: Matrix, err: Float32Array, count: number): void;
+  /**
+   * Validate a subset of point correspondences before fitting.
+   *
+   * @param from - Source points.
+   * @param to - Destination points.
+   * @param count - Number of points in the subset.
+   * @returns True if the subset is valid for model fitting.
+   */
   check_subset(from: { x: number; y: number }[], to: { x: number; y: number }[], count: number): boolean;
 }
 
@@ -82,7 +113,10 @@ const AtA = new Matrix(6, 6, DataType.F32 | Channel.C1);
 const AtB = new Matrix(6, 1, DataType.F32 | Channel.C1);
 
 /**
- * Affine 2D motion kernel (6 DOF).
+ * Affine 2D motion kernel (6 degrees of freedom).
+ *
+ * Fits a 2D affine transform from point correspondences using
+ * least-squares with isotropic normalization.
  */
 export const affine2d: MotionKernel = {
   run(from, to, model, count) {
@@ -166,7 +200,10 @@ const mLtL = new Matrix(9, 9, DataType.F32 | Channel.C1);
 const Evec = new Matrix(9, 9, DataType.F32 | Channel.C1);
 
 /**
- * Homography 2D motion kernel (8 DOF).
+ * Homography 2D motion kernel (8 degrees of freedom).
+ *
+ * Fits a 3x3 homography from point correspondences using
+ * eigen decomposition with normalization.
  */
 export const homography2d: MotionKernel = {
   run(from, to, model, count) {

@@ -361,12 +361,17 @@ let _tau = 7;
 // ---------------------------------------------------------------------------
 
 /**
- * Initialize YAPE detector tables.
+ * Initialize YAPE detector tables for the given image dimensions.
  *
- * @param width         Image width.
- * @param height        Image height.
- * @param radius        Circle radius (clamped to [3, 7]).
- * @param pyramidLevels Number of pyramid levels (default 1).
+ * Must be called before {@link yapeDetect}. Precomputes circular
+ * sampling directions and allocates score buffers.
+ *
+ * Based on: YAPE by V. Lepetit, EPFL.
+ *
+ * @param width - Image width in pixels.
+ * @param height - Image height in pixels.
+ * @param radius - Circle radius for sampling (clamped to [3, 7]).
+ * @param pyramidLevels - Number of pyramid levels (default 1).
  */
 export function yapeInit(
   width: number,
@@ -384,6 +389,8 @@ export function yapeInit(
 
 /**
  * Set the tau (threshold) value for YAPE detection.
+ *
+ * @param tau - Intensity threshold for corner response.
  */
 export function yapeSetTau(tau: number): void {
   _tau = tau;
@@ -392,11 +399,13 @@ export function yapeSetTau(tau: number): void {
 /**
  * Detect YAPE keypoints in a single-channel image.
  *
- * You must call `yapeInit` before calling this function.
+ * You must call {@link yapeInit} before calling this function.
  *
- * @param src     Source Matrix (U8C1).
- * @param points  Pre-allocated array of Keypoint objects.
- * @param border  Border to skip (default 4).
+ * Based on: YAPE by V. Lepetit, EPFL.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param points - Pre-allocated array of Keypoint objects.
+ * @param border - Border to skip in pixels (default 4).
  * @returns Number of detected keypoints.
  */
 export function yapeDetect(src: Matrix, points: Keypoint[], border: number = 4): number {

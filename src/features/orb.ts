@@ -314,10 +314,15 @@ function rectify_patch(
 /**
  * Compute ORB (oriented BRIEF) descriptors for the given keypoints.
  *
- * @param src          Source image Matrix (U8C1).
- * @param corners      Array of Keypoints (must have angle set).
- * @param count        Number of keypoints to describe.
- * @param descriptors  Output Matrix, resized to (32, count, U8C1).
+ * Each descriptor is 32 bytes (256 bits). The keypoints must have
+ * their `angle` property set before calling this function.
+ *
+ * Based on: ORB by E. Rublee et al., OpenCV implementation.
+ *
+ * @param src - Source image Matrix (U8C1).
+ * @param corners - Array of Keypoints (must have angle set).
+ * @param count - Number of keypoints to describe.
+ * @param descriptors - Output Matrix, resized to (32, count, U8C1).
  */
 export function orbDescribe(
   src: Matrix,

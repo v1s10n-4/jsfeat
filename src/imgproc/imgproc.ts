@@ -399,13 +399,15 @@ function _convol(
 // ---------------------------------------------------------------------------
 
 /**
- * Convert raw pixel data (RGBA/RGB/BGRA/BGR) to grayscale.
+ * Convert raw pixel data (RGBA/RGB/BGRA/BGR) to single-channel grayscale.
  *
- * @param src  Raw pixel bytes (Uint8Array or Uint8ClampedArray).
- * @param w    Image width.
- * @param h    Image height.
- * @param dst  Destination Matrix (will be resized to w x h, 1 channel).
- * @param code Color conversion code (default RGBA2GRAY).
+ * Uses fixed-point BT.601 luminance coefficients.
+ *
+ * @param src - Raw pixel bytes (Uint8Array or Uint8ClampedArray from canvas).
+ * @param w - Image width in pixels.
+ * @param h - Image height in pixels.
+ * @param dst - Destination Matrix (will be resized to w x h, 1 channel).
+ * @param code - Color conversion code from ColorCode (default RGBA2GRAY).
  */
 export function grayscale(
   src: Uint8Array | Uint8ClampedArray,
@@ -447,10 +449,10 @@ export function grayscale(
 /**
  * Area-based image resampling (downscaling only).
  *
- * @param src  Source Matrix.
- * @param dst  Destination Matrix (resized to nw x nh).
- * @param nw   New width.
- * @param nh   New height.
+ * @param src - Source Matrix.
+ * @param dst - Destination Matrix (resized to nw x nh).
+ * @param nw - New width (must be smaller than src width).
+ * @param nh - New height (must be smaller than src height).
  */
 export function resample(src: Matrix, dst: Matrix, nw: number, nh: number): void {
   const h = src.rows, w = src.cols;
@@ -466,12 +468,14 @@ export function resample(src: Matrix, dst: Matrix, nw: number, nh: number): void
 }
 
 /**
- * Pyramid downsampling (gaussian-like 2x2 block averaging).
+ * Pyramid downsampling via 2x2 block averaging.
  *
- * @param src  Source Matrix.
- * @param dst  Destination Matrix (resized to w/2 x h/2).
- * @param sx   Optional x start offset (default 0).
- * @param sy   Optional y start offset (default 0).
+ * Produces an image at half the resolution of the source.
+ *
+ * @param src - Source Matrix.
+ * @param dst - Destination Matrix (resized to w/2 x h/2).
+ * @param sx - Horizontal start offset in pixels (default 0).
+ * @param sy - Vertical start offset in pixels (default 0).
  */
 export function pyrDown(src: Matrix, dst: Matrix, sx: number = 0, sy: number = 0): void {
   const w = src.cols, h = src.rows;
@@ -502,12 +506,14 @@ export function pyrDown(src: Matrix, dst: Matrix, sx: number = 0, sy: number = 0
 }
 
 /**
- * Box blur for grayscale images.
+ * Box blur for single-channel grayscale images.
  *
- * @param src     Source Matrix (U8C1).
- * @param dst     Destination Matrix (resized to match src).
- * @param radius  Blur radius.
- * @param options Optional flags (BOX_BLUR_NOSCALE to skip normalization).
+ * Applies a separable box filter with the given radius.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param dst - Destination Matrix (resized to match src).
+ * @param radius - Blur radius (window size = 2*radius + 1).
+ * @param options - Optional flags (BOX_BLUR_NOSCALE to skip normalization).
  */
 export function boxBlurGray(src: Matrix, dst: Matrix, radius: number, options: number = 0): void {
   const w = src.cols, h = src.rows, h2 = h << 1, w2 = w << 1;
@@ -672,12 +678,15 @@ export function boxBlurGray(src: Matrix, dst: Matrix, radius: number, options: n
 }
 
 /**
- * Gaussian blur (separable convolution).
+ * Gaussian blur via separable convolution.
  *
- * @param src         Source Matrix.
- * @param dst         Destination Matrix (resized to match src).
- * @param kernel_size Kernel size (odd number, 0 = auto from sigma).
- * @param sigma       Gaussian sigma (default 0.0 = auto from kernel_size).
+ * Either kernel_size or sigma can be set to 0 and the other will be
+ * computed automatically.
+ *
+ * @param src - Source Matrix.
+ * @param dst - Destination Matrix (resized to match src).
+ * @param kernel_size - Kernel size (odd number, 0 = auto from sigma).
+ * @param sigma - Gaussian sigma (default 0.0 = auto from kernel_size).
  */
 export function gaussianBlur(src: Matrix, dst: Matrix, kernel_size: number, sigma: number = 0.0): void {
   if (typeof kernel_size === 'undefined') { kernel_size = 0; }
@@ -720,10 +729,12 @@ export function gaussianBlur(src: Matrix, dst: Matrix, kernel_size: number, sigm
 }
 
 /**
- * Scharr gradient computation (S32C2 output: [gx, gy, ...]).
+ * Compute image gradients using the Scharr operator.
  *
- * @param src  Source Matrix.
- * @param dst  Destination Matrix (resized to w x h, 2 channels).
+ * Output is S32C2 with interleaved [gx, gy, ...] pairs.
+ *
+ * @param src - Source Matrix.
+ * @param dst - Destination Matrix (resized to w x h, 2 channels).
  */
 export function scharrDerivatives(src: Matrix, dst: Matrix): void {
   const w = src.cols, h = src.rows;
@@ -795,11 +806,13 @@ export function scharrDerivatives(src: Matrix, dst: Matrix): void {
 }
 
 /**
- * Sobel gradient computation using kernel [1 2 1] * [-1 0 1]^T.
- * Output is S32C2: [gx, gy, ...].
+ * Compute image gradients using the Sobel operator.
  *
- * @param src  Source Matrix.
- * @param dst  Destination Matrix (resized to w x h, 2 channels).
+ * Uses kernels [1 2 1] and [-1 0 1]. Output is S32C2 with
+ * interleaved [gx, gy, ...] pairs.
+ *
+ * @param src - Source Matrix.
+ * @param dst - Destination Matrix (resized to w x h, 2 channels).
  */
 export function sobelDerivatives(src: Matrix, dst: Matrix): void {
   const w = src.cols, h = src.rows;
@@ -871,14 +884,16 @@ export function sobelDerivatives(src: Matrix, dst: Matrix): void {
 }
 
 /**
- * Compute integral image (and optionally squared / tilted integral).
+ * Compute integral image (and optionally squared / tilted integrals).
  *
- * Note: dst arrays must have size (cols+1) * (rows+1).
+ * Integral images enable O(1) rectangle sum queries and are used
+ * internally by the HAAR detector. Output arrays must have size
+ * (cols+1) * (rows+1).
  *
- * @param src        Source Matrix.
- * @param dst_sum    Output integral sum array (or null/undefined to skip).
- * @param dst_sqsum  Output squared integral sum array (or null/undefined).
- * @param dst_tilted Output tilted integral array (or null/undefined).
+ * @param src - Source Matrix.
+ * @param dst_sum - Output integral sum array, or null/undefined to skip.
+ * @param dst_sqsum - Output squared integral sum array, or null/undefined.
+ * @param dst_tilted - Output tilted (45-degree rotated) integral array, or null/undefined.
  */
 export function computeIntegralImage(
   src: Matrix,
@@ -991,10 +1006,12 @@ export function computeIntegralImage(
 }
 
 /**
- * Histogram equalization for grayscale images.
+ * Histogram equalization for single-channel grayscale images.
  *
- * @param src  Source Matrix (U8C1).
- * @param dst  Destination Matrix.
+ * Stretches the intensity distribution to improve contrast.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param dst - Destination Matrix (resized to match src).
  */
 export function equalizeHistogram(src: Matrix, dst: Matrix): void {
   const w = src.cols, h = src.rows, src_d = src.data;
@@ -1025,12 +1042,15 @@ export function equalizeHistogram(src: Matrix, dst: Matrix): void {
 }
 
 /**
- * Canny edge detection.
+ * Canny edge detection with hysteresis thresholding.
  *
- * @param src         Source Matrix (U8C1).
- * @param dst         Destination Matrix (edges as 0/255).
- * @param low_thresh  Low hysteresis threshold.
- * @param high_thresh High hysteresis threshold.
+ * Detects edges using Sobel gradients and non-maximum suppression,
+ * then applies hysteresis to connect strong and weak edges.
+ *
+ * @param src - Source Matrix (U8C1).
+ * @param dst - Destination Matrix (edges as 0 or 255).
+ * @param low_thresh - Low hysteresis threshold.
+ * @param high_thresh - High hysteresis threshold.
  */
 export function cannyEdges(src: Matrix, dst: Matrix, low_thresh: number, high_thresh: number): void {
   const w = src.cols, h = src.rows;
@@ -1195,10 +1215,13 @@ export function cannyEdges(src: Matrix, dst: Matrix, low_thresh: number, high_th
 /**
  * Warp image with a 2x3 affine transform using bilinear interpolation.
  *
- * @param src        Source Matrix.
- * @param dst        Destination Matrix.
- * @param transform  3x3 Matrix holding the affine transform (only first 2 rows used).
- * @param fillValue  Value for out-of-bounds pixels (default 0).
+ * Applies the given affine transform (first two rows of a 3x3 Matrix)
+ * to map source pixels to destination coordinates.
+ *
+ * @param src - Source Matrix.
+ * @param dst - Destination Matrix (dimensions define output size).
+ * @param transform - 3x3 Matrix holding the affine transform (only first 2 rows used).
+ * @param fillValue - Value for out-of-bounds pixels (default 0).
  */
 export function warpAffine(src: Matrix, dst: Matrix, transform: Matrix, fillValue: number = 0): void {
   const src_width = src.cols, src_height = src.rows, dst_width = dst.cols, dst_height = dst.rows;

@@ -439,8 +439,12 @@ function JacobiSVDImpl(
 // -----------------------------------------------------------------------
 
 /**
- * Solve A*x = B using LU decomposition (in-place).
+ * Solve the linear system A*x = B using LU decomposition with partial pivoting.
  *
+ * Both A and B are modified in-place; the solution is stored in B.
+ *
+ * @param A - Square coefficient matrix (modified in-place).
+ * @param B - Right-hand side vector (receives the solution).
  * @returns 1 on success, 0 on failure (singular matrix).
  */
 export function luSolve(A: Matrix, B: Matrix): number {
@@ -506,7 +510,12 @@ export function luSolve(A: Matrix, B: Matrix): number {
 /**
  * Solve A*x = B using Cholesky decomposition (in-place).
  *
- * @returns 1 on success, 0 on failure.
+ * A must be symmetric positive-definite. Both A and B are modified
+ * in-place; the solution is stored in B.
+ *
+ * @param A - Symmetric positive-definite coefficient matrix (modified in-place).
+ * @param B - Right-hand side vector (receives the solution).
+ * @returns 1 on success, 0 on failure (non-positive-definite matrix).
  */
 export function choleskySolve(A: Matrix, B: Matrix): number {
   let col = 0,
@@ -581,13 +590,16 @@ export function choleskySolve(A: Matrix, B: Matrix): number {
 }
 
 /**
- * SVD decomposition: A = U * diag(W) * V^T.
+ * Singular Value Decomposition: A = U * diag(W) * V^T.
  *
- * @param A       Input matrix.
- * @param W       1xN matrix to receive singular values (or null).
- * @param U       MxM matrix to receive left singular vectors (or null).
- * @param V       NxN matrix to receive right singular vectors (or null).
- * @param options Bitmask: SVD_U_T = store U transposed, SVD_V_T = store V transposed.
+ * Uses the Jacobi SVD algorithm. Singular values are returned in
+ * descending order.
+ *
+ * @param A - Input matrix (M x N).
+ * @param W - 1 x N matrix to receive singular values (or null to skip).
+ * @param U - M x M matrix to receive left singular vectors (or null to skip).
+ * @param V - N x N matrix to receive right singular vectors (or null to skip).
+ * @param options - Bitmask: SVD_U_T = store U transposed, SVD_V_T = store V transposed.
  */
 export function svdDecompose(
   A: Matrix,
@@ -688,6 +700,10 @@ export function svdDecompose(
 
 /**
  * Solve A*X = B via SVD pseudo-inverse.
+ *
+ * @param A - Coefficient matrix.
+ * @param X - Solution vector (output).
+ * @param B - Right-hand side vector.
  */
 export function svdSolve(A: Matrix, X: Matrix, B: Matrix): void {
   let i = 0,
@@ -739,6 +755,9 @@ export function svdSolve(A: Matrix, X: Matrix, B: Matrix): void {
 
 /**
  * Compute the pseudo-inverse of A via SVD: Ai = V * diag(1/W) * U^T.
+ *
+ * @param Ai - Destination matrix to receive the pseudo-inverse.
+ * @param A - Source matrix.
  */
 export function svdInvert(Ai: Matrix, A: Matrix): void {
   let i = 0,
@@ -785,11 +804,14 @@ export function svdInvert(Ai: Matrix, A: Matrix): void {
 }
 
 /**
- * Compute eigenvalues and eigenvectors of a symmetric matrix using the Jacobi method.
+ * Compute eigenvalues and eigenvectors of a symmetric matrix using the
+ * Jacobi iterative method.
  *
- * @param A     Input symmetric matrix (not modified).
- * @param vects Matrix to receive eigenvectors (or null).
- * @param vals  1xN matrix to receive eigenvalues (or null).
+ * Eigenvalues are returned in descending order.
+ *
+ * @param A - Input symmetric matrix (not modified).
+ * @param vects - N x N matrix to receive eigenvectors (or null to skip).
+ * @param vals - 1 x N matrix to receive eigenvalues (or null to skip).
  */
 export function eigenVV(
   A: Matrix,
