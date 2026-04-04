@@ -24,36 +24,69 @@ export function useWebcam() {
           label: d.label || `Camera ${i + 1}`,
         }));
       setCameras(videoDevices);
+      return videoDevices;
     } catch {
-      // Enumeration may fail before permissions are granted
+      return [];
     }
   }, []);
 
   const startStream = useCallback(async (deviceId?: string) => {
     try {
+      // Fully stop the old stream and detach from video element
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
       }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+        videoRef.current.load(); // Force video element to reset
+      }
+
       setError(null);
+
       const constraints: MediaStreamConstraints = {
         video: {
           width: { ideal: dimensionsRef.current.width },
           height: { ideal: dimensionsRef.current.height },
+          // Use 'exact' only when user explicitly picked a camera,
+          // otherwise let the browser choose (avoids breaking on
+          // Continuity Camera or devices that don't support exact match)
           ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         },
       };
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
+        // Wait for the video to actually produce frames
+        await new Promise<void>((resolve, reject) => {
+          const video = videoRef.current!;
+          const onPlaying = () => {
+            video.removeEventListener('playing', onPlaying);
+            video.removeEventListener('error', onError);
+            resolve();
+          };
+          const onError = () => {
+            video.removeEventListener('playing', onPlaying);
+            video.removeEventListener('error', onError);
+            reject(new Error('Video failed to play'));
+          };
+          video.addEventListener('playing', onPlaying);
+          video.addEventListener('error', onError);
+          video.play().catch(reject);
+        });
       }
+
       const track = stream.getVideoTracks()[0];
       if (track) {
         setActiveDeviceId(track.getSettings().deviceId ?? deviceId ?? null);
       }
       setIsActive(true);
-      // Re-enumerate after permission granted (labels become available)
+
+      // Re-enumerate — after permission grant, new cameras (e.g., iPhone
+      // Continuity Camera sub-lenses) may become visible
       await enumerateCameras();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to access webcam';
@@ -68,7 +101,6 @@ export function useWebcam() {
   }, [startStream]);
 
   const switchCamera = useCallback(async (deviceId: string) => {
-    dimensionsRef.current = dimensionsRef.current; // keep current resolution
     await startStream(deviceId);
   }, [startStream]);
 
@@ -86,6 +118,12 @@ export function useWebcam() {
   // Enumerate cameras on mount
   useEffect(() => {
     enumerateCameras();
+    // Also listen for device changes (camera plugged in/out, Continuity Camera connect)
+    const handler = () => { enumerateCameras(); };
+    navigator.mediaDevices?.addEventListener?.('devicechange', handler);
+    return () => {
+      navigator.mediaDevices?.removeEventListener?.('devicechange', handler);
+    };
   }, [enumerateCameras]);
 
   return { videoRef, start, stop, isActive, error, cameras, activeDeviceId, switchCamera };
