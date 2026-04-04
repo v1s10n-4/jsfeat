@@ -104,6 +104,12 @@ export class BufferPool {
    * @returns A PoolNode with at least the requested capacity.
    */
   get(sizeInBytes: number): PoolNode {
+    if (!this._head) {
+      // Auto-expand: create a new node when the pool is exhausted
+      const node = new PoolNode(sizeInBytes);
+      return node;
+    }
+
     const node = this._head;
     this._head = this._head.next!;
 
