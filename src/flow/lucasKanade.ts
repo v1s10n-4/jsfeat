@@ -128,7 +128,7 @@ export function lucasKanade(
       iprev_y = prev_y | 0;
 
       // border check
-      x = (iprev_x <= brd_tl) | (iprev_x >= brd_r) | (iprev_y <= brd_tl) | (iprev_y >= brd_b);
+      x = (iprev_x <= brd_tl || iprev_x >= brd_r || iprev_y <= brd_tl || iprev_y >= brd_b) ? 1 : 0;
       if (x != 0) {
         if (level == 0) {
           status[ptid] = 0;
@@ -198,7 +198,7 @@ export function lucasKanade(
         inext_x = next_x | 0;
         inext_y = next_y | 0;
 
-        x = (inext_x <= brd_tl) | (inext_x >= brd_r) | (inext_y <= brd_tl) | (inext_y >= brd_b);
+        x = (inext_x <= brd_tl || inext_x >= brd_r || inext_y <= brd_tl || inext_y >= brd_b) ? 1 : 0;
         if (x != 0) {
           if (level == 0) {
             status[ptid] = 0;
