@@ -274,7 +274,7 @@ export const homography2d: MotionKernel = {
         LtL[i * 9 + j] = LtL[j * 9 + i];
     }
 
-    eigenVV(mLtL, Evec);
+    eigenVV(mLtL, Evec, null);
 
     md[0] = evd[72]; md[1] = evd[73]; md[2] = evd[74];
     md[3] = evd[75]; md[4] = evd[76]; md[5] = evd[77];

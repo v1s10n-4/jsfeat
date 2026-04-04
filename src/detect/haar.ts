@@ -64,7 +64,7 @@ export function haarDetectSingleScale(
   const inv_area = 1.0 / (win_w * win_h);
   let stages: any[], stage: any, trees: any[], tree: any;
   let sn: number, tn: number, fn: number, found: boolean = true;
-  let stage_thresh: number, stage_sum: number, tree_sum: number;
+  let stage_thresh: number, stage_sum = 0, tree_sum: number;
   let feature: any, features: any[];
   let fi_a: number, fi_b: number, fi_c: number, fi_d: number, fw: number, fh: number;
 
