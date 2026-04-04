@@ -2393,22 +2393,92 @@ const cardDetectionDemo: DemoDefinition = {
     // Apply temporal smoothing to reduce jitter
     if (detected && cardCorners.length === 4) {
       if (_cardSmoothedCorners) {
+        // Check if detection jumped significantly
+        let maxJump = 0;
         for (let i = 0; i < 4; i++) {
-          _cardSmoothedCorners[i].x = _cardSmoothedCorners[i].x * SMOOTHING + cardCorners[i].x * (1 - SMOOTHING);
-          _cardSmoothedCorners[i].y = _cardSmoothedCorners[i].y * SMOOTHING + cardCorners[i].y * (1 - SMOOTHING);
+          const dx2 = cardCorners[i].x - _cardSmoothedCorners[i].x;
+          const dy2 = cardCorners[i].y - _cardSmoothedCorners[i].y;
+          maxJump = Math.max(maxJump, Math.sqrt(dx2 * dx2 + dy2 * dy2));
+        }
+        if (maxJump > 50) {
+          // Big jump — snap immediately
+          _cardSmoothedCorners = cardCorners.map(p => ({ ...p }));
+        } else {
+          for (let i = 0; i < 4; i++) {
+            _cardSmoothedCorners[i].x = _cardSmoothedCorners[i].x * SMOOTHING + cardCorners[i].x * (1 - SMOOTHING);
+            _cardSmoothedCorners[i].y = _cardSmoothedCorners[i].y * SMOOTHING + cardCorners[i].y * (1 - SMOOTHING);
+          }
         }
         cardCorners = _cardSmoothedCorners;
       } else {
         _cardSmoothedCorners = cardCorners.map(p => ({ ...p }));
       }
-    } else if (!detected && _cardSmoothedCorners) {
-      // Keep showing last detection briefly (1 frame grace)
-      cardCorners = _cardSmoothedCorners;
-      detected = true;
+    } else if (!detected) {
+      // Reset smoothing so next detection is fresh
+      _cardSmoothedCorners = null;
     }
 
-    // Draw green quadrilateral overlay
+    // Draw card preview and overlay
     if (detected && cardCorners.length === 4) {
+      // 1. FIRST: Color perspective warp for the preview (before drawing any overlays)
+      profiler.start('warp');
+
+      // Standard card proportions
+      const cardW = 125;
+      const cardH = 175;
+      const padding = 8;
+      const cardX = w - cardW - padding;
+      const cardY = h - cardH - padding;
+
+      // Get source pixels BEFORE drawing green quad
+      const srcImgData = ctx.getImageData(0, 0, w, h);
+      const srcPx = srcImgData.data;
+
+      // Compute homography: from preview rect → video quad (for backward mapping)
+      const H = getPerspectiveTransform(
+        [{ x: 0, y: 0 }, { x: cardW - 1, y: 0 }, { x: cardW - 1, y: cardH - 1 }, { x: 0, y: cardH - 1 }],
+        [cardCorners[0], cardCorners[1], cardCorners[2], cardCorners[3]],
+      );
+
+      // Color perspective warp with bilinear interpolation
+      const outImg = ctx.createImageData(cardW, cardH);
+      const out = outImg.data;
+      for (let dy = 0; dy < cardH; dy++) {
+        for (let dx = 0; dx < cardW; dx++) {
+          const ww = H[6] * dx + H[7] * dy + H[8];
+          if (Math.abs(ww) < 1e-8) continue;
+          const sx = (H[0] * dx + H[1] * dy + H[2]) / ww;
+          const sy = (H[3] * dx + H[4] * dy + H[5]) / ww;
+          const ix = sx | 0, iy = sy | 0;
+          if (ix >= 0 && iy >= 0 && ix < w - 1 && iy < h - 1) {
+            const a = sx - ix, b2 = sy - iy;
+            const off = (iy * w + ix) * 4;
+            const di = (dy * cardW + dx) * 4;
+            for (let c = 0; c < 3; c++) {
+              out[di + c] = ((srcPx[off + c] * (1 - a) + srcPx[off + 4 + c] * a) * (1 - b2) +
+                             (srcPx[off + w * 4 + c] * (1 - a) + srcPx[off + w * 4 + 4 + c] * a) * b2) | 0;
+            }
+            out[di + 3] = 255;
+          }
+        }
+      }
+      profiler.end('warp');
+
+      // Draw preview background + label
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(cardX - 2, cardY - 18, cardW + 4, cardH + 20);
+      ctx.fillStyle = '#00ff00';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('Detected Card', cardX + cardW / 2, cardY - 5);
+
+      // Draw perspective-corrected COLOR card
+      ctx.putImageData(outImg, cardX, cardY);
+      ctx.strokeStyle = '#00ff00';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(cardX - 1, cardY - 1, cardW + 2, cardH + 2);
+
+      // 2. THEN: Draw green quadrilateral overlay (on top of everything)
       ctx.strokeStyle = '#00ff00';
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -2426,49 +2496,6 @@ const cardDetectionDemo: DemoDefinition = {
         ctx.arc(cardCorners[i].x, cardCorners[i].y, 5, 0, Math.PI * 2);
         ctx.fill();
       }
-
-      // Compute axis-aligned bounding box of all 4 corners
-      profiler.start('warp');
-      let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
-      for (const c of cardCorners) {
-        if (c.x < cMinX) cMinX = c.x;
-        if (c.x > cMaxX) cMaxX = c.x;
-        if (c.y < cMinY) cMinY = c.y;
-        if (c.y > cMaxY) cMaxY = c.y;
-      }
-      const srcX = Math.round(cMinX);
-      const srcY = Math.round(cMinY);
-      const srcW = Math.max(1, Math.round(cMaxX - cMinX));
-      const srcH = Math.max(1, Math.round(cMaxY - cMinY));
-
-      // Preview size proportional to detected card, 150px on longest side, min 50px
-      const maxPreview = 150;
-      const previewScale = maxPreview / Math.max(srcW, srcH);
-      const cardW = Math.max(50, Math.round(srcW * previewScale));
-      const cardH = Math.max(50, Math.round(srcH * previewScale));
-      profiler.end('warp');
-
-      const padding = 8;
-      const cardX = w - cardW - padding;
-      const cardY = h - cardH - padding;
-
-      // Semi-transparent background behind the preview
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(cardX - 2, cardY - 18, cardW + 4, cardH + 20);
-
-      // Label above preview
-      ctx.fillStyle = '#00ff00';
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Detected Card', cardX + cardW / 2, cardY - 5);
-
-      // Crop and scale the detected region from the canvas (color, not grayscale)
-      ctx.drawImage(ctx.canvas, srcX, srcY, srcW, srcH, cardX, cardY, cardW, cardH);
-
-      // Border around cropped card
-      ctx.strokeStyle = '#00ff00';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cardX - 1, cardY - 1, cardW + 2, cardH + 2);
     }
 
     // Debug: show flood-fill state in top-left thumbnail
