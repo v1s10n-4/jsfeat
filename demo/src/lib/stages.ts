@@ -5,7 +5,7 @@
  * that the UI renders inline on its card.
  */
 
-import { Matrix, Keypoint, U8C1, S32C2 } from 'jsfeat/core';
+import { Matrix, Keypoint, U8C1, S32C2, F32C1 } from 'jsfeat/core';
 import {
   grayscale as jfGrayscale,
   boxBlurGray,
@@ -17,8 +17,9 @@ import {
   scharrDerivatives,
   resample,
   computeIntegralImage,
+  warpAffine,
 } from 'jsfeat/imgproc';
-import { fastCorners, yape06Detect } from 'jsfeat/features';
+import { fastCorners, yape06Detect, yapeDetect } from 'jsfeat/features';
 import {
   haarDetectMultiScale,
   groupRectangles,
@@ -336,7 +337,86 @@ const definitions: StageDefinition[] = [
     },
   },
 
-  // 11. Haar Face Detection
+  // 11. YAPE (full)
+  {
+    id: 'yape',
+    name: 'YAPE',
+    category: 'Feature Detection',
+    icon: 'Target',
+    controls: [
+      { type: 'slider', key: 'border', label: 'Border', min: 3, max: 10, step: 1, defaultNum: 4 },
+    ],
+    process(ctx, gray, _w, _h, params) {
+      const border = params.border ?? 4;
+      const corners = getCornersPool(gray.cols * gray.rows);
+      const count = yapeDetect(gray, corners, border);
+      ctx.fillStyle = 'rgba(200, 50, 255, 0.7)';
+      for (let i = 0; i < count; i++) {
+        const kp = corners[i];
+        ctx.beginPath();
+        ctx.arc(kp.x, kp.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+  },
+
+  // 12. Warp Affine
+  {
+    id: 'warpAffine',
+    name: 'Warp Affine',
+    category: 'Transforms',
+    icon: 'RotateCw',
+    controls: [
+      { type: 'slider', key: 'rotation', label: 'Rotation', min: -180, max: 180, step: 1, defaultNum: 0 },
+      { type: 'slider', key: 'scale', label: 'Scale', min: 0.5, max: 2.0, step: 0.1, defaultNum: 1.0 },
+    ],
+    process(_ctx, gray, w, h, params) {
+      const dst = getScratchDst(w, h);
+      const angle = (params.rotation ?? 0) * Math.PI / 180;
+      const s = params.scale ?? 1.0;
+      const cosA = Math.cos(angle) * s;
+      const sinA = Math.sin(angle) * s;
+      const cx = w / 2, cy = h / 2;
+
+      const transform = new Matrix(3, 3, F32C1);
+      const td = transform.data;
+      td[0] = cosA;  td[1] = -sinA; td[2] = cx - cx * cosA + cy * sinA;
+      td[3] = sinA;  td[4] = cosA;  td[5] = cy - cx * sinA - cy * cosA;
+      td[6] = 0;     td[7] = 0;     td[8] = 1;
+
+      warpAffine(gray, dst, transform, 0);
+      dst.copyTo(gray);
+    },
+  },
+
+  // 13. Resample
+  {
+    id: 'resample',
+    name: 'Resample',
+    category: 'Transforms',
+    icon: 'Scaling',
+    controls: [
+      { type: 'slider', key: 'scalePct', label: 'Scale %', min: 10, max: 200, step: 10, defaultNum: 50 },
+    ],
+    process(_ctx, gray, w, h, params) {
+      const pct = (params.scalePct ?? 50) / 100;
+      const nw = Math.max(1, (w * pct) | 0);
+      const nh = Math.max(1, (h * pct) | 0);
+      const dst = getScratchDst(nw, nh);
+      resample(gray, dst, nw, nh);
+      // Copy back into gray at original dimensions (nearest-neighbor upscale)
+      gray.resize(w, h, 1);
+      for (let y = 0; y < h; y++) {
+        const sy = Math.min((y / h * nh) | 0, nh - 1);
+        for (let x = 0; x < w; x++) {
+          const sx = Math.min((x / w * nw) | 0, nw - 1);
+          gray.data[y * w + x] = dst.data[sy * nw + sx];
+        }
+      }
+    },
+  },
+
+  // 14. Haar Face Detection
   {
     id: 'haarFace',
     name: 'Haar Face',
