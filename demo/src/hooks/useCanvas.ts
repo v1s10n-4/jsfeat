@@ -22,7 +22,7 @@ export function useCanvas() {
   }, []);
 
   const getCtx = useCallback(() => {
-    return canvasRef.current?.getContext('2d') ?? null;
+    return canvasRef.current?.getContext('2d', { willReadFrequently: true }) ?? null;
   }, []);
 
   return { canvasRef, dimensions, setResolution, capture, getCtx };
