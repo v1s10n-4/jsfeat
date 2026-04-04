@@ -82,8 +82,11 @@ interface TypeNode {
   indexType?: TypeNode;
 }
 
-function stringifyType(t: TypeNode | undefined): string {
+const MAX_TYPE_DEPTH = 3;
+
+function stringifyType(t: TypeNode | undefined, depth: number = 0): string {
   if (!t) return 'unknown';
+  if (depth > MAX_TYPE_DEPTH) return t.name ?? '...';
 
   switch (t.type) {
     case 'intrinsic':
@@ -91,15 +94,16 @@ function stringifyType(t: TypeNode | undefined): string {
 
     case 'reference':
       if (t.typeArguments?.length) {
-        return `${t.name}<${t.typeArguments.map(stringifyType).join(', ')}>`;
+        if (depth >= MAX_TYPE_DEPTH) return t.name ?? 'unknown';
+        return `${t.name}<${t.typeArguments.map((a) => stringifyType(a, depth + 1)).join(', ')}>`;
       }
       return t.name ?? 'unknown';
 
     case 'union':
-      return (t.types ?? []).map(stringifyType).join(' | ');
+      return (t.types ?? []).map((u) => stringifyType(u, depth + 1)).join(' | ');
 
     case 'array':
-      return `${stringifyType(t.elementType)}[]`;
+      return `${stringifyType(t.elementType, depth + 1)}[]`;
 
     case 'literal':
       if (t.value === null) return 'null';
@@ -107,22 +111,23 @@ function stringifyType(t: TypeNode | undefined): string {
       return String(t.value);
 
     case 'reflection':
+      if (depth >= MAX_TYPE_DEPTH) return 'object';
       if (t.declaration?.children) {
         const fields = t.declaration.children
-          .map((c) => `${c.name}: ${stringifyType(c.type)}`)
+          .map((c) => `${c.name}: ${stringifyType(c.type, depth + 1)}`)
           .join('; ');
         return `{ ${fields} }`;
       }
       return 'object';
 
     case 'indexedAccess':
-      return `${stringifyType(t.objectType)}[${stringifyType(t.indexType)}]`;
+      return `${stringifyType(t.objectType, depth + 1)}[${stringifyType(t.indexType, depth + 1)}]`;
 
     case 'typeOperator':
-      return `${t.operator} ${stringifyType(t.target as TypeNode)}`;
+      return `${t.operator} ${stringifyType(t.target as TypeNode, depth + 1)}`;
 
     case 'query':
-      return `typeof ${stringifyType(t as unknown as TypeNode)}`;
+      return `typeof ${stringifyType(t as unknown as TypeNode, depth + 1)}`;
 
     default:
       return t.name ?? 'unknown';
