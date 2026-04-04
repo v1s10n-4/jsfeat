@@ -70,13 +70,17 @@ export class Pyramid {
       }
     }
 
+    if (!this.pyrdown) {
+      throw new Error('pyrdown function not set. Assign a pyrdown implementation before calling build.');
+    }
+
     let b = this.data[1];
-    this.pyrdown!(a, b);
+    this.pyrdown(a, b);
 
     for (let i = 2; i < this.levels; ++i) {
       a = b;
       b = this.data[i];
-      this.pyrdown!(a, b);
+      this.pyrdown(a, b);
     }
   }
 }
