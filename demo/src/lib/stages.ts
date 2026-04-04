@@ -28,7 +28,33 @@ import {
   bbfDetect,
   bbfGroupRectangles,
 } from 'jsfeat/detect';
-import { frontalface, bbfFace } from 'jsfeat/cascades';
+
+// Lazy-load cascade data to reduce initial bundle size.
+// The cascade JSON files are large (~200KB each); dynamic import
+// ensures they are code-split into separate chunks.
+let _frontalface: any = null;
+let _bbfFaceData: any = null;
+
+async function loadFrontalface() {
+  if (!_frontalface) {
+    const mod = await import('jsfeat/cascades');
+    _frontalface = mod.frontalface;
+  }
+  return _frontalface;
+}
+
+async function loadBbfFace() {
+  if (!_bbfFaceData) {
+    const mod = await import('jsfeat/cascades');
+    _bbfFaceData = mod.bbfFace;
+  }
+  return _bbfFaceData;
+}
+
+// Pre-trigger the lazy loads so they are ready by the time a user
+// navigates to a detection stage.  This is non-blocking.
+void loadFrontalface();
+void loadBbfFace();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -426,6 +452,7 @@ const definitions: StageDefinition[] = [
       { type: 'slider', key: 'scaleFactor', label: 'Scale', min: 1.1, max: 2.0, step: 0.1, defaultNum: 1.2 },
     ],
     process(ctx, gray, w, h, params) {
+      if (!_frontalface) return; // cascade not loaded yet
       const scaleFactor = params.scaleFactor ?? 1.2;
 
       // Downsample for performance
@@ -446,7 +473,7 @@ const definitions: StageDefinition[] = [
       computeIntegralImage(src, iiSum, iiSqSum, iiTilted);
 
       // Detect
-      const rects = haarDetectMultiScale(iiSum, iiSqSum, iiTilted, null, dw, dh, frontalface, scaleFactor);
+      const rects = haarDetectMultiScale(iiSum, iiSqSum, iiTilted, null, dw, dh, _frontalface, scaleFactor);
       const grouped = groupRectangles(rects, 1);
 
       // Draw boxes scaled back up
@@ -469,14 +496,15 @@ const definitions: StageDefinition[] = [
       { type: 'slider', key: 'scaleFactor', label: 'Scale', min: 1.1, max: 2.0, step: 0.1, defaultNum: 1.2 },
     ],
     init() {
-      if (!_bbfPrepared) {
-        bbfPrepareCascade(bbfFace);
+      if (!_bbfPrepared && _bbfFaceData) {
+        bbfPrepareCascade(_bbfFaceData);
         _bbfPrepared = true;
       }
     },
     process(ctx, gray, w, h, _params) {
+      if (!_bbfFaceData) return; // cascade not loaded yet
       if (!_bbfPrepared) {
-        bbfPrepareCascade(bbfFace);
+        bbfPrepareCascade(_bbfFaceData);
         _bbfPrepared = true;
       }
 
@@ -495,7 +523,7 @@ const definitions: StageDefinition[] = [
 
       const interval = Math.max(1, Math.round((_params.scaleFactor ?? 1.2) * 3));
       const pyr = bbfBuildPyramid(src, 24, 24, interval);
-      const rects = bbfDetect(pyr, bbfFace);
+      const rects = bbfDetect(pyr, _bbfFaceData);
       const grouped = bbfGroupRectangles(rects, 1);
 
       const invScale = 1 / scale;
