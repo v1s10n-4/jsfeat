@@ -17,7 +17,7 @@ Complete recode of the jsfeat demo app from vanilla TypeScript to a React SPA wi
 | Routing | react-router-dom v7 with HashRouter (GitHub Pages) |
 | Drag & Drop | @dnd-kit/core + @dnd-kit/sortable |
 | Icons | lucide-react |
-| Syntax Highlighting | shiki |
+| API Docs | TypeDoc (auto-generated, embedded via iframe) |
 | E2E Testing | Playwright |
 | State | React Context + hooks (no external state lib) |
 | Deployment | GitHub Pages via GitHub Actions |
@@ -118,15 +118,22 @@ Subtitle on homepage: "Build real-time computer vision pipelines. Default: Tradi
 
 ## Docs Page (`#/docs`)
 
-API reference using shadcn Tabs for module sections:
-- Core, Math, Image Processing, Features, Optical Flow, Detection, Motion, Transform
+Embeds the TypeDoc-generated API documentation (already built by `npm run docs` into `docs/api/`). The GitHub Actions deploy workflow copies this to `_site/api/`, so it's available at `/jsfeat/api/`.
 
-Each tab shows functions with:
-- TypeScript signature in syntax-highlighted code block (shiki, dark theme)
-- One-line description
-- "Try it →" link to corresponding demo
+### Implementation
+- Full-page iframe pointing to `/jsfeat/api/index.html`
+- Styled to fill the content area with no visible iframe chrome
+- "Open in new tab" button in the top-right corner for full-screen browsing
+- On mobile: iframe fills viewport below the nav bar
 
-Responsive: tabs become a Select dropdown on mobile.
+### Why iframe over re-implementing
+- TypeDoc output stays auto-generated and always in sync with the source TSDoc
+- No hand-written signatures to maintain — single source of truth
+- TypeDoc's own navigation, search, and cross-references work natively
+- Zero maintenance cost when the library API changes
+
+### Dependency
+- `shiki` is no longer needed (removed from dependencies) — TypeDoc handles its own syntax highlighting
 
 ---
 
