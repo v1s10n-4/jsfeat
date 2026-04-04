@@ -1,40 +1,57 @@
-jsfeat
-======
+# jsfeat
 
-### JavaScript Computer Vision library ###
+Modern TypeScript port of the [jsfeat](https://github.com/inspirit/jsfeat) Computer Vision library.
 
-The project aim is to explore JS/HTML5 possibilities using modern & state-of-art computer vision algorithms.
+## Installation
 
-[Examples and Documentation](https://inspirit.github.io/jsfeat/)
+```bash
+npm install jsfeat
+```
 
-### Features ###
+## Usage
 
-* Custom data structures
-* Basic image processing methods (grayscale, derivatives, box-blur, resample, etc.)
- * grayscale ([Demo](https://inspirit.github.io/jsfeat/sample_grayscale.html))
- * box blur ([Demo](https://inspirit.github.io/jsfeat/sample_boxblur.html))
- * gaussian blur ([Demo](https://inspirit.github.io/jsfeat/sample_gaussblur.html))
- * equalize histogram ([Demo](https://inspirit.github.io/jsfeat/sample_equalize_hist.html))
- * canny edges ([Demo](https://inspirit.github.io/jsfeat/sample_canny_edge.html))
- * sobel deriv ([Demo](https://inspirit.github.io/jsfeat/sample_sobel.html))
- * scharr deriv ([Demo](https://inspirit.github.io/jsfeat/sample_scharr.html))
- * find more at Examples and Documentation page
-* Linear Algebra module
- * LU (Gaussian elimination) solver
- * Cholesky solver
- * SVD decomposition, solver and pseudo-inverse
- * Eigen Vectors and Values
-* Multiview module  ([Demo](https://inspirit.github.io/jsfeat/sample_videostab.html))
- * Affine2D motion kernel
- * Homography2D motion kernel
- * RANSAC motion estimator
- * LMEDS motion estimator
-* Matrix Math module for various matrix operation such as traspose, multiply etc.
-* Features 2D
- * Fast Corners feature detector ([Demo](https://inspirit.github.io/jsfeat/sample_fast_corners.html))
- * YAPE06 feature detector ([Demo](https://inspirit.github.io/jsfeat/sample_yape06.html))
- * YAPE feature detector ([Demo](https://inspirit.github.io/jsfeat/sample_yape.html))
- * ORB feature descriptor ([Demo](https://inspirit.github.io/jsfeat/sample_orb.html))
-* Lucas-Kanade optical flow ([Demo](https://inspirit.github.io/jsfeat/sample_oflow_lk.html) - click to add points)
-* HAAR object detector ([Demo](https://inspirit.github.io/jsfeat/sample_haar_face.html))
-* BBF object detector ([Demo](https://inspirit.github.io/jsfeat/sample_bbf_face.html))
+```typescript
+import { Matrix, U8C1, Keypoint, ColorCode } from 'jsfeat/core';
+import { grayscale, gaussianBlur, cannyEdges } from 'jsfeat/imgproc';
+import { fastCorners } from 'jsfeat/features';
+
+// Convert image to grayscale
+const gray = new Matrix(width, height, U8C1);
+grayscale(imageData.data, width, height, gray, ColorCode.RGBA2GRAY);
+
+// Detect edges
+const edges = new Matrix(width, height, U8C1);
+gaussianBlur(gray, gray, 5, 0);
+cannyEdges(gray, edges, 20, 40);
+
+// Detect corners
+const corners = Array.from({ length: 1000 }, () => new Keypoint());
+const count = fastCorners(gray, corners, 20);
+```
+
+## Modules
+
+| Module | Import | Description |
+|--------|--------|-------------|
+| Core | `jsfeat/core` | Matrix, Keypoint, Pyramid, data types |
+| Math | `jsfeat/math` | Linear algebra, matrix operations, SVD |
+| Image Processing | `jsfeat/imgproc` | Grayscale, blur, edges, derivatives |
+| Features | `jsfeat/features` | FAST, YAPE, ORB feature detection |
+| Optical Flow | `jsfeat/flow` | Lucas-Kanade sparse optical flow |
+| Detection | `jsfeat/detect` | HAAR and BBF cascade classifiers |
+| Motion | `jsfeat/motion` | RANSAC, LMEDS motion estimation |
+| Transform | `jsfeat/transform` | Affine and perspective transforms |
+| Cascades | `jsfeat/cascades` | Pre-trained detector models |
+
+## Development
+
+```bash
+npm install
+npm test          # Run tests
+npm run build     # Build library
+npm run docs      # Generate API docs
+```
+
+## License
+
+MIT -- Original library by [Eugene Zatepyakin](http://www.inspirit.ru/)
