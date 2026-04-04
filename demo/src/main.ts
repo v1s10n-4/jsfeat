@@ -14,45 +14,6 @@ import { buildToolbar } from './ui/toolbar';
 //  Demo registry  (25 entries, grouped by category)
 // =====================================================================
 
-/** Helper: wraps a legacy module (named exports) as a new-style Demo */
-function legacyLoader(
-  loader: () => Promise<Record<string, unknown>>,
-  meta: { title: string; category: string; description: string },
-): () => Promise<{ default: Demo }> {
-  return async () => {
-    const mod = await loader();
-
-    // New-style module already has a default export
-    if (mod.default && typeof (mod.default as Demo).process === 'function') {
-      return mod as { default: Demo };
-    }
-
-    // Wrap legacy named exports
-    const legacy = mod as {
-      setup(c: HTMLCanvasElement, v: HTMLVideoElement, ctx: CanvasRenderingContext2D): void;
-      process(ctx: CanvasRenderingContext2D, v: HTMLVideoElement, w: number, h: number): void;
-      cleanup(): void;
-    };
-
-    const demo: Demo = {
-      ...meta,
-      controls: [],
-      setup(canvas, video, _params) {
-        const ctx = canvas.getContext('2d')!;
-        legacy.setup(canvas, video, ctx);
-      },
-      process(ctx, video, w, h, _profiler) {
-        legacy.process(ctx, video, w, h);
-      },
-      cleanup() {
-        legacy.cleanup();
-      },
-    };
-
-    return { default: demo };
-  };
-}
-
 function placeholderLoader(
   meta: { title: string; category: string },
 ): () => Promise<{ default: Demo }> {
@@ -76,57 +37,49 @@ const demoRegistry: DemoEntry[] = [
     id: 'grayscale',
     title: 'Grayscale',
     category: 'Image Processing',
-    loader: legacyLoader(() => import('./demos/grayscale'), {
-      title: 'Grayscale',
-      category: 'Image Processing',
-      description: 'Real-time RGB to grayscale conversion.',
-    }),
+    loader: () => import('./demos/grayscale'),
   },
   {
     id: 'boxBlur',
     title: 'Box Blur',
     category: 'Image Processing',
-    loader: placeholderLoader({ title: 'Box Blur', category: 'Image Processing' }),
+    loader: () => import('./demos/boxBlur'),
   },
   {
     id: 'gaussianBlur',
     title: 'Gaussian Blur',
     category: 'Image Processing',
-    loader: placeholderLoader({ title: 'Gaussian Blur', category: 'Image Processing' }),
+    loader: () => import('./demos/gaussianBlur'),
   },
   {
     id: 'pyrDown',
     title: 'Pyramid Down',
     category: 'Image Processing',
-    loader: placeholderLoader({ title: 'Pyramid Down', category: 'Image Processing' }),
+    loader: () => import('./demos/pyrDown'),
   },
   {
     id: 'equalizeHist',
     title: 'Equalize Histogram',
     category: 'Image Processing',
-    loader: placeholderLoader({ title: 'Equalize Histogram', category: 'Image Processing' }),
+    loader: () => import('./demos/equalizeHist'),
   },
   {
     id: 'sobel',
     title: 'Sobel',
     category: 'Image Processing',
-    loader: placeholderLoader({ title: 'Sobel', category: 'Image Processing' }),
+    loader: () => import('./demos/sobel'),
   },
   {
     id: 'scharr',
     title: 'Scharr',
     category: 'Image Processing',
-    loader: placeholderLoader({ title: 'Scharr', category: 'Image Processing' }),
+    loader: () => import('./demos/scharr'),
   },
   {
     id: 'edges',
     title: 'Canny Edges',
     category: 'Image Processing',
-    loader: legacyLoader(() => import('./demos/edges'), {
-      title: 'Canny Edges',
-      category: 'Image Processing',
-      description: 'Canny edge detection with Gaussian pre-blur.',
-    }),
+    loader: () => import('./demos/edges'),
   },
 
   // ---- Feature Detection ----
@@ -134,33 +87,25 @@ const demoRegistry: DemoEntry[] = [
     id: 'corners',
     title: 'FAST Corners',
     category: 'Feature Detection',
-    loader: legacyLoader(() => import('./demos/corners'), {
-      title: 'FAST Corners',
-      category: 'Feature Detection',
-      description: 'FAST corner detection with drawn keypoints.',
-    }),
+    loader: () => import('./demos/corners'),
   },
   {
     id: 'yape06',
     title: 'YAPE06',
     category: 'Feature Detection',
-    loader: placeholderLoader({ title: 'YAPE06', category: 'Feature Detection' }),
+    loader: () => import('./demos/yape06'),
   },
   {
     id: 'yape',
     title: 'YAPE',
     category: 'Feature Detection',
-    loader: placeholderLoader({ title: 'YAPE', category: 'Feature Detection' }),
+    loader: () => import('./demos/yape'),
   },
   {
     id: 'orbMatch',
     title: 'ORB Match',
     category: 'Feature Detection',
-    loader: legacyLoader(() => import('./demos/orb'), {
-      title: 'ORB Features',
-      category: 'Feature Detection',
-      description: 'ORB descriptor extraction with orientation visualization.',
-    }),
+    loader: () => import('./demos/orb'),
   },
 
   // ---- Face Detection ----
@@ -168,11 +113,7 @@ const demoRegistry: DemoEntry[] = [
     id: 'faceDetect',
     title: 'Haar Face',
     category: 'Face Detection',
-    loader: legacyLoader(() => import('./demos/faceDetect'), {
-      title: 'Haar Face Detection',
-      category: 'Face Detection',
-      description: 'Haar cascade face detection with bounding boxes.',
-    }),
+    loader: () => import('./demos/faceDetect'),
   },
   {
     id: 'bbfFace',
@@ -186,11 +127,7 @@ const demoRegistry: DemoEntry[] = [
     id: 'opticalFlow',
     title: 'Optical Flow',
     category: 'Motion',
-    loader: legacyLoader(() => import('./demos/opticalFlow'), {
-      title: 'Optical Flow',
-      category: 'Motion',
-      description: 'Lucas-Kanade optical flow with feature tracking.',
-    }),
+    loader: () => import('./demos/opticalFlow'),
   },
   {
     id: 'videoStab',

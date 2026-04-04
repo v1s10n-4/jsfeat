@@ -1,11 +1,12 @@
+import type { Demo } from '../lib/demoBase';
+import type { Profiler } from '../ui/profiler';
 import { Matrix, U8C1, Keypoint, Pyramid, ColorCode } from 'jsfeat/core';
 import { grayscale, pyrDown } from 'jsfeat/imgproc';
 import { fastCorners } from 'jsfeat/features';
 import { lucasKanade } from 'jsfeat/flow';
 
-const MAX_POINTS = 500;
 const PYRAMID_LEVELS = 3;
-const REDETECT_INTERVAL = 30; // frames between re-detection
+const REDETECT_INTERVAL = 30;
 
 let prevPyr: Pyramid | null = null;
 let currPyr: Pyramid | null = null;
@@ -17,137 +18,187 @@ let frameCount = 0;
 let gray: Matrix | null = null;
 let corners: Keypoint[] = [];
 
-/**
- * Lucas-Kanade optical flow with feature tracking.
- */
-export function setup(
-  canvas: HTMLCanvasElement,
-  _video: HTMLVideoElement,
-  _ctx: CanvasRenderingContext2D,
-): void {
-  const w = canvas.width;
-  const h = canvas.height;
+let winSize = 20;
+let maxIter = 30;
+let maxPoints = 500;
 
-  gray = new Matrix(w, h, U8C1);
-  corners = Array.from({ length: MAX_POINTS }, () => new Keypoint());
+const demo: Demo = {
+  title: 'Optical Flow',
+  category: 'Motion',
+  description: 'Lucas-Kanade optical flow with feature tracking.',
 
-  prevPyr = new Pyramid(PYRAMID_LEVELS);
-  prevPyr.allocate(w, h, U8C1);
-  prevPyr.pyrdown = pyrDown;
+  controls: [
+    {
+      type: 'slider',
+      key: 'winSize',
+      label: 'Window Size',
+      min: 5,
+      max: 30,
+      step: 1,
+      value: 20,
+    },
+    {
+      type: 'slider',
+      key: 'maxIter',
+      label: 'Max Iterations',
+      min: 5,
+      max: 50,
+      step: 1,
+      value: 30,
+    },
+    {
+      type: 'slider',
+      key: 'maxPoints',
+      label: 'Max Points',
+      min: 50,
+      max: 500,
+      step: 50,
+      value: 500,
+    },
+  ],
 
-  currPyr = new Pyramid(PYRAMID_LEVELS);
-  currPyr.allocate(w, h, U8C1);
-  currPyr.pyrdown = pyrDown;
+  setup(canvas: HTMLCanvasElement, _video: HTMLVideoElement, params: Record<string, unknown>) {
+    const w = canvas.width;
+    const h = canvas.height;
 
-  prevXY = new Float32Array(MAX_POINTS * 2);
-  currXY = new Float32Array(MAX_POINTS * 2);
-  status = new Uint8Array(MAX_POINTS);
+    winSize = (params.winSize as number) ?? 20;
+    maxIter = (params.maxIter as number) ?? 30;
+    maxPoints = (params.maxPoints as number) ?? 500;
 
-  pointCount = 0;
-  frameCount = 0;
-}
+    gray = new Matrix(w, h, U8C1);
+    corners = Array.from({ length: maxPoints }, () => new Keypoint());
 
-function detectFeatures(w: number, h: number): void {
-  if (!gray || !currXY) return;
-  const count = fastCorners(gray, corners, 20);
-  pointCount = Math.min(count, MAX_POINTS);
-  for (let i = 0; i < pointCount; i++) {
-    currXY[i * 2] = corners[i].x;
-    currXY[i * 2 + 1] = corners[i].y;
-  }
-}
+    prevPyr = new Pyramid(PYRAMID_LEVELS);
+    prevPyr.allocate(w, h, U8C1);
+    prevPyr.pyrdown = pyrDown;
 
-export function process(
-  ctx: CanvasRenderingContext2D,
-  video: HTMLVideoElement,
-  w: number,
-  h: number,
-): void {
-  if (!gray || !prevPyr || !currPyr || !prevXY || !currXY || !status) return;
+    currPyr = new Pyramid(PYRAMID_LEVELS);
+    currPyr.allocate(w, h, U8C1);
+    currPyr.pyrdown = pyrDown;
 
-  ctx.drawImage(video, 0, 0, w, h);
-  const imageData = ctx.getImageData(0, 0, w, h);
+    prevXY = new Float32Array(maxPoints * 2);
+    currXY = new Float32Array(maxPoints * 2);
+    status = new Uint8Array(maxPoints);
 
-  grayscale(imageData.data, w, h, gray, ColorCode.RGBA2GRAY);
+    pointCount = 0;
+    frameCount = 0;
+  },
 
-  // Swap pyramids
-  const tmp = prevPyr;
-  prevPyr = currPyr;
-  currPyr = tmp;
+  process(
+    ctx: CanvasRenderingContext2D,
+    video: HTMLVideoElement,
+    w: number,
+    h: number,
+    profiler: Profiler,
+  ) {
+    if (!gray || !prevPyr || !currPyr || !prevXY || !currXY || !status) return;
 
-  // Copy grayscale into level 0, build pyramid
-  const lvl0 = currPyr.data[0];
-  const n = w * h;
-  for (let i = 0; i < n; i++) {
-    lvl0.data[i] = gray.data[i];
-  }
-  currPyr.build(currPyr.data[0], true);
+    profiler.frameStart();
 
-  // Periodically re-detect features
-  if (frameCount === 0 || pointCount < 10 || frameCount % REDETECT_INTERVAL === 0) {
-    detectFeatures(w, h);
-  }
+    profiler.start('capture');
+    ctx.drawImage(video, 0, 0, w, h);
+    const imageData = ctx.getImageData(0, 0, w, h);
+    profiler.end('capture');
 
-  if (pointCount > 0 && frameCount > 0) {
-    // Copy currXY to prevXY before tracking
-    for (let i = 0; i < pointCount * 2; i++) {
-      prevXY[i] = currXY[i];
+    profiler.start('grayscale');
+    grayscale(imageData.data, w, h, gray, ColorCode.RGBA2GRAY);
+    profiler.end('grayscale');
+
+    // Swap pyramids
+    const tmp = prevPyr;
+    prevPyr = currPyr;
+    currPyr = tmp;
+
+    profiler.start('pyramid');
+    const lvl0 = currPyr.data[0];
+    const n = w * h;
+    for (let i = 0; i < n; i++) {
+      lvl0.data[i] = gray.data[i];
     }
+    currPyr.build(currPyr.data[0], true);
+    profiler.end('pyramid');
 
-    lucasKanade(prevPyr, currPyr, prevXY, currXY, pointCount, 20, 30, status, 0.01, 0.0001);
-
-    // Draw video frame
-    ctx.putImageData(imageData, 0, 0);
-
-    // Draw flow vectors
-    ctx.strokeStyle = '#00ccff';
-    ctx.lineWidth = 1.5;
-    ctx.fillStyle = '#ff4444';
-
-    let newCount = 0;
-    for (let i = 0; i < pointCount; i++) {
-      if (status[i] === 1) {
-        const px = prevXY[i * 2], py = prevXY[i * 2 + 1];
-        const cx = currXY[i * 2], cy = currXY[i * 2 + 1];
-
-        // Skip points that went out of bounds
-        if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
-
-        // Draw line from prev to curr
-        ctx.beginPath();
-        ctx.moveTo(px, py);
-        ctx.lineTo(cx, cy);
-        ctx.stroke();
-
-        // Draw point at current position
-        ctx.beginPath();
-        ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Compact tracked points
-        if (newCount !== i) {
-          currXY[newCount * 2] = cx;
-          currXY[newCount * 2 + 1] = cy;
-        }
-        newCount++;
+    // Periodically re-detect features
+    if (frameCount === 0 || pointCount < 10 || frameCount % REDETECT_INTERVAL === 0) {
+      profiler.start('detect');
+      const count = fastCorners(gray, corners, 20);
+      pointCount = Math.min(count, maxPoints);
+      for (let i = 0; i < pointCount; i++) {
+        currXY[i * 2] = corners[i].x;
+        currXY[i * 2 + 1] = corners[i].y;
       }
+      profiler.end('detect');
     }
-    pointCount = newCount;
-  } else {
-    ctx.putImageData(imageData, 0, 0);
-  }
 
-  frameCount++;
-}
+    if (pointCount > 0 && frameCount > 0) {
+      for (let i = 0; i < pointCount * 2; i++) {
+        prevXY[i] = currXY[i];
+      }
 
-export function cleanup(): void {
-  prevPyr = null;
-  currPyr = null;
-  prevXY = null;
-  currXY = null;
-  status = null;
-  gray = null;
-  corners = [];
-  pointCount = 0;
-  frameCount = 0;
-}
+      profiler.start('optical flow');
+      lucasKanade(prevPyr, currPyr, prevXY, currXY, pointCount, winSize, maxIter, status, 0.01, 0.0001);
+      profiler.end('optical flow');
+
+      profiler.start('render');
+      ctx.putImageData(imageData, 0, 0);
+
+      ctx.strokeStyle = '#00ccff';
+      ctx.lineWidth = 1.5;
+      ctx.fillStyle = '#ff4444';
+
+      let newCount = 0;
+      for (let i = 0; i < pointCount; i++) {
+        if (status[i] === 1) {
+          const px = prevXY[i * 2], py = prevXY[i * 2 + 1];
+          const cx = currXY[i * 2], cy = currXY[i * 2 + 1];
+
+          if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
+
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(cx, cy);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+          ctx.fill();
+
+          if (newCount !== i) {
+            currXY[newCount * 2] = cx;
+            currXY[newCount * 2 + 1] = cy;
+          }
+          newCount++;
+        }
+      }
+      pointCount = newCount;
+      profiler.end('render');
+    } else {
+      profiler.start('render');
+      ctx.putImageData(imageData, 0, 0);
+      profiler.end('render');
+    }
+
+    frameCount++;
+    profiler.frameEnd();
+  },
+
+  onParamChange(key: string, value: unknown) {
+    if (key === 'winSize') winSize = value as number;
+    if (key === 'maxIter') maxIter = value as number;
+    if (key === 'maxPoints') maxPoints = value as number;
+  },
+
+  cleanup() {
+    prevPyr = null;
+    currPyr = null;
+    prevXY = null;
+    currXY = null;
+    status = null;
+    gray = null;
+    corners = [];
+    pointCount = 0;
+    frameCount = 0;
+  },
+};
+
+export default demo;
