@@ -1968,8 +1968,13 @@ let _cardParams: Record<string, any> = {};
 let _cardGray: Matrix | null = null;
 let _cardBlurred: Matrix | null = null;
 let _cardEdges: Matrix | null = null;
-let _cardWarpDst: Matrix | null = null;
-let _cardCornerBuf: Keypoint[] | null = null;
+let _cardDebugInfo: string = '';
+let _cardSmallBuf: Uint8Array | null = null;
+// Temporal smoothing for stable bounding box
+let _cardSmoothedCorners: { x: number; y: number }[] | null = null;
+const SMOOTHING = 0.3; // 0 = no smoothing, 1 = freeze
+let _cardStateBuf: Uint8Array | null = null;
+let _cardQueueBuf: Int32Array | null = null;
 
 /** Convex hull (Andrew's monotone chain). */
 function convexHull(points: { x: number; y: number }[]): { x: number; y: number }[] {
@@ -2022,15 +2027,6 @@ function douglasPeucker(points: { x: number; y: number }[], epsilon: number): { 
   return [first, last];
 }
 
-/** Polygon area (shoelace formula). */
-function polygonArea(pts: { x: number; y: number }[]): number {
-  let area = 0;
-  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    area += (pts[j].x + pts[i].x) * (pts[j].y - pts[i].y);
-  }
-  return Math.abs(area / 2);
-}
-
 /** Sort 4 corners into top-left, top-right, bottom-right, bottom-left order. */
 function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[] {
   // Center point
@@ -2056,6 +2052,7 @@ function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[
  * Compute 3x3 perspective transform from 4 source points to 4 destination points.
  * Solves the 8-parameter homography using simple Gaussian elimination.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function getPerspectiveTransform(
   src: { x: number; y: number }[],
   dst: { x: number; y: number }[],
@@ -2111,6 +2108,7 @@ function getPerspectiveTransform(
 }
 
 /** Warp src grayscale using a 3x3 perspective transform into dst. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function warpPerspective(
   src: Matrix, dst: Matrix, H: Float64Array, fillValue: number,
 ): void {
@@ -2159,14 +2157,14 @@ const cardDetectionDemo: DemoDefinition = {
   category: 'Detection',
   description: 'Detects rectangular cards via edge detection and perspective-corrects them.',
   controls: [
-    { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 15, step: 2, defaultNum: 5 },
-    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 5, max: 150, step: 1, defaultNum: 20 },
-    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 20, max: 255, step: 1, defaultNum: 80 },
-    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 500, max: 50000, step: 500, defaultNum: 2000 },
+    { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 21, step: 2, defaultNum: 7 },
+    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 5, max: 150, step: 1, defaultNum: 5 },
+    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 20, max: 255, step: 1, defaultNum: 247 },
+    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 200, max: 50000, step: 100, defaultNum: 500 },
   ],
   setup(_canvas, _video, params) {
     _cardParams = {
-      blurKernel: 5, cannyLow: 20, cannyHigh: 80, minContourArea: 2000,
+      blurKernel: 7, cannyLow: 5, cannyHigh: 247, minContourArea: 500,
       ...params,
     };
   },
@@ -2195,156 +2193,218 @@ const cardDetectionDemo: DemoDefinition = {
     cannyEdges(_cardBlurred!, _cardEdges!, _cardParams.cannyLow ?? 30, _cardParams.cannyHigh ?? 100);
     profiler.end('canny');
 
-    // Detect card using FAST corners on the edge image, then find 4 corners
-    // that form the best card-shaped quadrilateral
+    // Detect card by finding enclosed regions bounded by Canny edges.
+    // Works for any card brightness on a contrasting background.
     profiler.start('contour');
-    const minArea = _cardParams.minContourArea ?? 3000;
+    _cardDebugInfo = '';
+    const edgeData = _cardEdges!.data;
+    const minArea = _cardParams.minContourArea ?? 2000;
 
     let detected = false;
     let cardCorners: { x: number; y: number }[] = [];
 
-    // Detect FAST corners on the blurred grayscale (not edges — edges give too many points)
-    const maxCorners = 1000;
-    if (!_cardCornerBuf || _cardCornerBuf.length < maxCorners) {
-      _cardCornerBuf = Array.from({ length: maxCorners }, () => new Keypoint());
-    }
-    const cornerCount = fastCorners(_cardBlurred!, _cardCornerBuf, 15, 4);
-    const nc = Math.min(cornerCount, maxCorners);
+    // Downsample edge image 4x (160x120 at 640x480)
+    const ds = 4;
+    const sw = (w / ds) | 0, sh = (h / ds) | 0;
+    const sn = sw * sh;
 
-    // Also check if each corner lies near an edge (within 3px of a Canny edge pixel)
-    // This filters out corners from texture and keeps only structural corners
-    const edgeData = _cardEdges!.data;
-    const edgeCorners: { x: number; y: number }[] = [];
-    for (let i = 0; i < nc; i++) {
-      const cx = _cardCornerBuf[i].x;
-      const cy = _cardCornerBuf[i].y;
-      let nearEdge = false;
-      for (let dy = -5; dy <= 5 && !nearEdge; dy++) {
-        for (let dx = -5; dx <= 5 && !nearEdge; dx++) {
-          const nx = cx + dx, ny = cy + dy;
-          if (nx >= 0 && ny >= 0 && nx < w && ny < h && edgeData[ny * w + nx] === 255) {
-            nearEdge = true;
+    if (!_cardSmallBuf || _cardSmallBuf.length < sn) {
+      _cardSmallBuf = new Uint8Array(sn);
+      _cardStateBuf = new Uint8Array(sn);
+      _cardQueueBuf = new Int32Array(sn);
+    }
+    const small = _cardSmallBuf!;
+    const state = _cardStateBuf!; // 0=open, 1=wall, 2=background
+    const queue = _cardQueueBuf!;
+
+    // Downsample edges: cell is wall only if it has enough edge pixels
+    // This filters out weak interior edges while keeping strong card borders
+    // Any edge pixel makes a wall. With blur=7, only strong structural edges survive.
+    const edgeThreshold = 1;
+    for (let sy = 0; sy < sh; sy++) {
+      for (let sx = 0; sx < sw; sx++) {
+        let edgeCount = 0;
+        const baseY = sy * ds, baseX = sx * ds;
+        for (let dy = 0; dy < ds; dy++) {
+          const row = (baseY + dy) * w + baseX;
+          for (let dx = 0; dx < ds; dx++) {
+            if (edgeData[row + dx] === 255) edgeCount++;
           }
         }
-      }
-      if (nearEdge) {
-        edgeCorners.push({ x: cx, y: cy });
+        // Wall if edge density > threshold (strong continuous edge)
+        small[sy * sw + sx] = edgeCount >= edgeThreshold ? 1 : 0;
       }
     }
 
-    // Find the best quadrilateral from edge corners
-    // For performance, limit to top 40 corners (sorted by distance from center)
-    const ccx = w / 2, ccy = h / 2;
-    edgeCorners.sort((a, b) => {
-      const da = (a.x - ccx) ** 2 + (a.y - ccy) ** 2;
-      const db = (b.x - ccx) ** 2 + (b.y - ccy) ** 2;
-      return da - db;
-    });
-    const candidates = edgeCorners.slice(0, 40);
+    // Initialize state: walls stay, rest is open (0)
+    for (let i = 0; i < sn; i++) state[i] = small[i]; // 0=open, 1=wall
 
+    // Flood-fill from borders: mark reachable non-wall cells as background (2)
+    let qHead = 0, qTail = 0;
+    for (let x = 0; x < sw; x++) {
+      if (state[x] === 0) { state[x] = 2; queue[qTail++] = x; }
+      const b = (sh - 1) * sw + x;
+      if (state[b] === 0) { state[b] = 2; queue[qTail++] = b; }
+    }
+    for (let y = 1; y < sh - 1; y++) {
+      const l = y * sw;
+      if (state[l] === 0) { state[l] = 2; queue[qTail++] = l; }
+      const r = l + sw - 1;
+      if (state[r] === 0) { state[r] = 2; queue[qTail++] = r; }
+    }
+    while (qHead < qTail) {
+      const idx = queue[qHead++];
+      const x2 = idx % sw, y2 = (idx / sw) | 0;
+      if (x2 > 0     && state[idx-1]  === 0) { state[idx-1]  = 2; queue[qTail++] = idx-1; }
+      if (x2 < sw-1  && state[idx+1]  === 0) { state[idx+1]  = 2; queue[qTail++] = idx+1; }
+      if (y2 > 0     && state[idx-sw] === 0) { state[idx-sw] = 2; queue[qTail++] = idx-sw; }
+      if (y2 < sh-1  && state[idx+sw] === 0) { state[idx+sw] = 2; queue[qTail++] = idx+sw; }
+    }
+
+    // Find enclosed regions (state === 0) = potential cards
+    const visited = new Uint8Array(sn); // separate visited array
     let bestScore = 0;
-    const n = candidates.length;
 
-    if (n >= 4) {
-      // Try combinations of 4 corners from the candidate list
-      // Limit to top 20 to keep O(n^4) manageable: 20^4/24 ≈ 6700 combinations
-      const pool = candidates.slice(0, 20);
-      const pn = pool.length;
+    for (let y = 0; y < sh; y++) {
+      for (let x = 0; x < sw; x++) {
+        const idx = y * sw + x;
+        if (state[idx] !== 0 || visited[idx]) continue;
 
-      for (let a = 0; a < pn - 3; a++) {
-        const p0 = pool[a];
-        for (let b = a + 1; b < pn - 2; b++) {
-          const p1 = pool[b];
-          for (let c = b + 1; c < pn - 1; c++) {
-            const p2 = pool[c];
-            for (let d = c + 1; d < pn; d++) {
-              const p3 = pool[d];
-              // Sort into TL, TR, BR, BL order first
-              const quad = sortCorners([p0, p1, p2, p3]);
-              const area = polygonArea(quad);
-              if (area < minArea) continue;
-              // Max area: 35% of frame
-              if (area > w * h * 0.35) continue;
+        // BFS to find bounding box of this enclosed region
+        let minX = x, maxX = x, minY = y, maxY = y, area = 0;
+        qHead = 0; qTail = 0;
+        queue[qTail++] = idx;
+        visited[idx] = 1;
+        while (qHead < qTail) {
+          const ri = queue[qHead++];
+          const rx = ri % sw, ry = (ri / sw) | 0;
+          area++;
+          if (rx < minX) minX = rx;
+          if (rx > maxX) maxX = rx;
+          if (ry < minY) minY = ry;
+          if (ry > maxY) maxY = ry;
+          if (rx > 0    && state[ri-1]  === 0 && !visited[ri-1])  { visited[ri-1]  = 1; queue[qTail++] = ri-1; }
+          if (rx < sw-1 && state[ri+1]  === 0 && !visited[ri+1])  { visited[ri+1]  = 1; queue[qTail++] = ri+1; }
+          if (ry > 0    && state[ri-sw] === 0 && !visited[ri-sw]) { visited[ri-sw] = 1; queue[qTail++] = ri-sw; }
+          if (ry < sh-1 && state[ri+sw] === 0 && !visited[ri+sw]) { visited[ri+sw] = 1; queue[qTail++] = ri+sw; }
+        }
 
-              // Aspect ratio (card ~0.72) using sorted corners [TL, TR, BR, BL]
-              const topW2 = Math.sqrt((quad[1].x - quad[0].x) ** 2 + (quad[1].y - quad[0].y) ** 2);
-              const botW = Math.sqrt((quad[2].x - quad[3].x) ** 2 + (quad[2].y - quad[3].y) ** 2);
-              const leftH2 = Math.sqrt((quad[3].x - quad[0].x) ** 2 + (quad[3].y - quad[0].y) ** 2);
-              const rightH2 = Math.sqrt((quad[2].x - quad[1].x) ** 2 + (quad[2].y - quad[1].y) ** 2);
-              const avgW = (topW2 + botW) / 2;
-              const avgH2 = (leftH2 + rightH2) / 2;
-              const aspect = Math.min(avgW, avgH2) / Math.max(avgW, avgH2);
-              if (aspect < 0.35 || aspect > 0.95) continue;
+        const fullArea = area * ds * ds;
+        const rw2 = maxX - minX + 1;
+        const rh2 = maxY - minY + 1;
+        const aspect = (rw2 > 1 && rh2 > 1) ? Math.min(rw2, rh2) / Math.max(rw2, rh2) : 0;
+        const rectFill = (rw2 * rh2 > 0) ? area / (rw2 * rh2) : 0;
 
-              // Check parallelism: top/bottom widths similar, left/right heights similar
-              const wRatio = Math.min(topW2, botW) / Math.max(topW2, botW);
-              const hRatio = Math.min(leftH2, rightH2) / Math.max(leftH2, rightH2);
-              if (wRatio < 0.3 || hRatio < 0.3) continue;
+        // Debug: track best candidate info
 
-              // Check convexity (all cross products same sign)
-              let convex = true;
-              let posCount = 0, negCount = 0;
-              for (let i = 0; i < 4; i++) {
-                const pa = quad[i];
-                const pb = quad[(i + 1) % 4];
-                const pc = quad[(i + 2) % 4];
-                const cross = (pb.x - pa.x) * (pc.y - pb.y) - (pb.y - pa.y) * (pc.x - pb.x);
-                if (cross > 0) posCount++;
-                else if (cross < 0) negCount++;
-              }
-              if (posCount > 0 && negCount > 0) convex = false;
-              if (!convex) continue;
+        if (fullArea < minArea || fullArea > w * h * 0.5) continue;
+        if (rw2 < 2 || rh2 < 2) continue;
+        if (aspect < 0.4 || aspect > 0.95) continue;
+        if (rectFill < 0.3) continue;
 
-              // Count edge pixels along the 4 sides of the quadrilateral
-              let edgeCount = 0;
-              let totalSamples = 0;
-              for (let i = 0; i < 4; i++) {
-                const pa = quad[i], pb = quad[(i + 1) % 4];
-                const len = Math.sqrt((pb.x - pa.x) ** 2 + (pb.y - pa.y) ** 2);
-                const steps = Math.max(10, len / 2) | 0;
-                for (let s = 0; s <= steps; s++) {
-                  const t = s / steps;
-                  const sx = (pa.x + t * (pb.x - pa.x)) | 0;
-                  const sy = (pa.y + t * (pb.y - pa.y)) | 0;
-                  if (sx >= 0 && sy >= 0 && sx < w && sy < h) {
-                    totalSamples++;
-                    // Check 2px radius for edge pixels
-                    for (let dy = -2; dy <= 2; dy++) {
-                      for (let dx = -2; dx <= 2; dx++) {
-                        const nx = sx + dx, ny = sy + dy;
-                        if (nx >= 0 && ny >= 0 && nx < w && ny < h && edgeData[ny * w + nx] === 255) {
-                          edgeCount++;
-                          dy = 3; dx = 3; // break both
-                        }
-                      }
-                    }
-                  }
-                }
-              }
+        const aspectMatch = 1 - Math.abs(aspect - 0.72);
+        const score = fullArea * rectFill * (0.5 + aspectMatch);
 
-              // Score: edge support ratio * aspect ratio match * area
-              const edgeRatio = totalSamples > 0 ? edgeCount / totalSamples : 0;
-              if (edgeRatio < 0.2) continue; // at least 20% of perimeter has edges
+        if (score > bestScore) {
+          bestScore = score;
+          detected = true;
+          _cardDebugInfo = `a=${fullArea} asp=${aspect.toFixed(2)} rf=${rectFill.toFixed(2)} sz=${rw2}x${rh2}`;
 
-              const aspectMatch = 1 - Math.abs(aspect - 0.72);
-              const score = edgeRatio * aspectMatch * Math.sqrt(area);
-
-              if (score > bestScore) {
-                bestScore = score;
-                detected = true;
-                cardCorners = quad; // already sorted
-              }
+          // Collect boundary pixels of this region for convex hull
+          // (pixels adjacent to a wall or background cell)
+          const boundaryPts: { x: number; y: number }[] = [];
+          // Re-scan the BFS queue to find boundary pixels
+          for (let bi = 0; bi < qTail; bi++) {
+            const ri = queue[bi];
+            const rx = ri % sw, ry = (ri / sw) | 0;
+            // Check if any neighbor is NOT state===0 (i.e., it's a wall or background)
+            let isBoundary = false;
+            if (rx === 0 || rx === sw - 1 || ry === 0 || ry === sh - 1) isBoundary = true;
+            else if (state[ri - 1] !== 0 || state[ri + 1] !== 0 ||
+                     state[ri - sw] !== 0 || state[ri + sw] !== 0) isBoundary = true;
+            if (isBoundary) {
+              boundaryPts.push({ x: rx * ds + ds / 2, y: ry * ds + ds / 2 });
             }
+          }
+
+          if (boundaryPts.length >= 4) {
+            // Compute convex hull and simplify to ~4 points
+            const hull = convexHull(boundaryPts);
+            const perimeter = hull.reduce((sum, p, i) => {
+              const next = hull[(i + 1) % hull.length];
+              return sum + Math.sqrt((next.x - p.x) ** 2 + (next.y - p.y) ** 2);
+            }, 0);
+            const closed = hull.concat([hull[0]]);
+            // Aggressive simplification to get ~4 vertices (card has 4 sides)
+            let epsilon = perimeter * 0.05;
+            let simplified2 = douglasPeucker(closed, epsilon);
+            // If too many vertices, increase epsilon until we get 4-6
+            let attempts = 0;
+            while (simplified2.length > 6 && attempts < 10) {
+              epsilon *= 1.3;
+              simplified2 = douglasPeucker(closed, epsilon);
+              attempts++;
+            }
+            // Remove duplicate closing point
+            if (simplified2.length > 1 &&
+                simplified2[0].x === simplified2[simplified2.length - 1].x &&
+                simplified2[0].y === simplified2[simplified2.length - 1].y) {
+              simplified2 = simplified2.slice(0, -1);
+            }
+
+            if (simplified2.length === 4) {
+              cardCorners = sortCorners(simplified2);
+            } else if (simplified2.length > 4) {
+              // Pick the 4 points that maximize quadrilateral area
+              // Use the 4 extreme points (min/max x/y) as a simple heuristic
+              const sorted = simplified2.slice();
+              sorted.sort((a, b) => a.x + a.y - b.x - b.y);
+              const tl = sorted[0];
+              sorted.sort((a, b) => (b.x - b.y) - (a.x - a.y));
+              const tr = sorted[0];
+              sorted.sort((a, b) => (a.x + a.y) - (b.x + b.y));
+              const br = sorted[sorted.length - 1];
+              sorted.sort((a, b) => (a.x - a.y) - (b.x - b.y));
+              const bl = sorted[sorted.length - 1];
+              cardCorners = [tl, tr, br, bl];
+            } else {
+              // Fall back to axis-aligned bounding box
+              cardCorners = sortCorners([
+                { x: minX * ds, y: minY * ds },
+                { x: (maxX + 1) * ds, y: minY * ds },
+                { x: (maxX + 1) * ds, y: (maxY + 1) * ds },
+                { x: minX * ds, y: (maxY + 1) * ds },
+              ]);
+            }
+          } else {
+            // Fall back to axis-aligned bounding box
+            cardCorners = sortCorners([
+              { x: minX * ds, y: minY * ds },
+              { x: (maxX + 1) * ds, y: minY * ds },
+              { x: (maxX + 1) * ds, y: (maxY + 1) * ds },
+              { x: minX * ds, y: (maxY + 1) * ds },
+            ]);
           }
         }
       }
     }
     profiler.end('contour');
 
-    // Debug: draw edge corners as small yellow dots
-    ctx.fillStyle = '#ff0';
-    for (const ec of edgeCorners) {
-      ctx.fillRect(ec.x - 1, ec.y - 1, 3, 3);
+    // Apply temporal smoothing to reduce jitter
+    if (detected && cardCorners.length === 4) {
+      if (_cardSmoothedCorners) {
+        for (let i = 0; i < 4; i++) {
+          _cardSmoothedCorners[i].x = _cardSmoothedCorners[i].x * SMOOTHING + cardCorners[i].x * (1 - SMOOTHING);
+          _cardSmoothedCorners[i].y = _cardSmoothedCorners[i].y * SMOOTHING + cardCorners[i].y * (1 - SMOOTHING);
+        }
+        cardCorners = _cardSmoothedCorners;
+      } else {
+        _cardSmoothedCorners = cardCorners.map(p => ({ ...p }));
+      }
+    } else if (!detected && _cardSmoothedCorners) {
+      // Keep showing last detection briefly (1 frame grace)
+      cardCorners = _cardSmoothedCorners;
+      detected = true;
     }
 
     // Draw green quadrilateral overlay
@@ -2367,24 +2427,27 @@ const cardDetectionDemo: DemoDefinition = {
         ctx.fill();
       }
 
-      // Perspective warp the detected card region
+      // Compute axis-aligned bounding box of all 4 corners
       profiler.start('warp');
-      const cardW = 125, cardH = 175; // small preview thumbnail
-      if (!_cardWarpDst || _cardWarpDst.cols !== cardW || _cardWarpDst.rows !== cardH) {
-        _cardWarpDst = new Matrix(cardW, cardH, U8C1);
+      let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity;
+      for (const c of cardCorners) {
+        if (c.x < cMinX) cMinX = c.x;
+        if (c.x > cMaxX) cMaxX = c.x;
+        if (c.y < cMinY) cMinY = c.y;
+        if (c.y > cMaxY) cMaxY = c.y;
       }
+      const srcX = Math.round(cMinX);
+      const srcY = Math.round(cMinY);
+      const srcW = Math.max(1, Math.round(cMaxX - cMinX));
+      const srcH = Math.max(1, Math.round(cMaxY - cMinY));
 
-      const dstPts = [
-        { x: 0, y: 0 },
-        { x: cardW - 1, y: 0 },
-        { x: cardW - 1, y: cardH - 1 },
-        { x: 0, y: cardH - 1 },
-      ];
-      const H = getPerspectiveTransform(cardCorners, dstPts);
-      warpPerspective(_cardGray!, _cardWarpDst, H, 0);
+      // Preview size proportional to detected card, 150px on longest side, min 50px
+      const maxPreview = 150;
+      const previewScale = maxPreview / Math.max(srcW, srcH);
+      const cardW = Math.max(50, Math.round(srcW * previewScale));
+      const cardH = Math.max(50, Math.round(srcH * previewScale));
       profiler.end('warp');
 
-      // Draw warped card at bottom-right corner of the canvas
       const padding = 8;
       const cardX = w - cardW - padding;
       const cardY = h - cardH - padding;
@@ -2399,33 +2462,44 @@ const cardDetectionDemo: DemoDefinition = {
       ctx.textAlign = 'center';
       ctx.fillText('Detected Card', cardX + cardW / 2, cardY - 5);
 
-      // Draw the warped grayscale image
-      const warpData = _cardWarpDst.data;
-      const outImageData = ctx.createImageData(cardW, cardH);
-      const out = outImageData.data;
-      for (let i = 0; i < cardW * cardH; i++) {
-        const v = warpData[i];
-        out[i * 4] = v;
-        out[i * 4 + 1] = v;
-        out[i * 4 + 2] = v;
-        out[i * 4 + 3] = 255;
-      }
-      ctx.putImageData(outImageData, cardX, cardY);
+      // Crop and scale the detected region from the canvas (color, not grayscale)
+      ctx.drawImage(ctx.canvas, srcX, srcY, srcW, srcH, cardX, cardY, cardW, cardH);
 
-      // Border around warped card
+      // Border around cropped card
       ctx.strokeStyle = '#00ff00';
       ctx.lineWidth = 2;
       ctx.strokeRect(cardX - 1, cardY - 1, cardW + 2, cardH + 2);
     }
 
+    // Debug: show flood-fill state in top-left thumbnail
+    // Green = enclosed (potential card), Blue = wall (edges), Dark = background
+    const debugW = sw, debugH = sh;
+    const debugImg = ctx.createImageData(debugW, debugH);
+    const dd = debugImg.data;
+    for (let dy = 0; dy < debugH; dy++) {
+      for (let dx = 0; dx < debugW; dx++) {
+        const di = (dy * debugW + dx) * 4;
+        const st = state[dy * sw + dx];
+        dd[di] = st === 1 ? 100 : 20;     // red: walls slightly visible
+        dd[di + 1] = st === 0 ? 220 : 20; // green: enclosed regions
+        dd[di + 2] = st === 1 ? 200 : 20; // blue: walls
+        dd[di + 3] = 220;
+      }
+    }
+    ctx.putImageData(debugImg, 4, 4);
+    ctx.strokeStyle = '#ff0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(3, 3, debugW + 2, debugH + 2);
+
     // Status
     ctx.fillStyle = detected ? '#0f0' : '#f66';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
+    // Show debug info about best candidate
+    let debugInfo = '';
+    if (_cardDebugInfo) debugInfo = ` | ${_cardDebugInfo}`;
     ctx.fillText(
-      detected
-        ? 'Card detected'
-        : `No card found (${nc} corners, ${edgeCorners.length} edge-corners, ${candidates.length} candidates)`,
+      (detected ? 'Card detected' : 'No card found') + debugInfo,
       8, h - 8,
     );
   },
@@ -2436,8 +2510,10 @@ const cardDetectionDemo: DemoDefinition = {
     _cardGray = null;
     _cardBlurred = null;
     _cardEdges = null;
-    _cardWarpDst = null;
-    _cardCornerBuf = null;
+    _cardSmoothedCorners = null;
+    _cardSmallBuf = null;
+    _cardStateBuf = null;
+    _cardQueueBuf = null;
   },
 };
 
