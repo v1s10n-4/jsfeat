@@ -134,10 +134,11 @@ Auto-generated API reference rendered natively in React using TypeDoc's JSON out
 - **Responsive**: Tabs become a shadcn Select dropdown on mobile (<768px)
 
 ### Build Integration
-- `npm run docs` script updated: `typedoc --json docs/api.json` (replaces HTML output)
-- `docs/api.json` committed to repo (auto-generated, ~200KB)
+- Root `npm run docs` script updated: `typedoc --json docs/api.json` (in addition to HTML output)
+- `docs/api.json` is gitignored (derived artifact, ~200KB)
+- Demo build script runs `npm run docs` first, then Vite build
 - Demo app imports it: `import apiData from '../../docs/api.json'`
-- GitHub Actions workflow updated: no longer needs to copy `docs/api/` to `_site/`
+- GitHub Actions workflow: `npm run docs` → `cd demo && npm run build` (JSON generated before demo build)
 
 ### Advantages
 - Fully themed with shadcn/Tailwind — consistent look with rest of the app
