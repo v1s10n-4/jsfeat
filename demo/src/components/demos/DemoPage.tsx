@@ -23,7 +23,7 @@ export default function DemoPage() {
 
   const demo = id ? demoRegistry.get(id) : undefined;
 
-  const { videoRef, start, stop, isActive, error } = useWebcam();
+  const { videoRef, start, stop, isActive, error, cameras, activeDeviceId, switchCamera } = useWebcam();
   const { canvasRef, dimensions, setResolution, capture, getCtx } = useCanvas();
   const profiler = useProfiler();
   const [frozen, setFrozen] = useState(false);
@@ -148,6 +148,9 @@ export default function DemoPage() {
             frozen={frozen}
             onFreeze={() => setFrozen((v) => !v)}
             profilerDisplay={profiler.display}
+            cameras={cameras}
+            activeDeviceId={activeDeviceId}
+            onSwitchCamera={switchCamera}
           />
           {isMobile && demo.controls.length > 0 && (
             <div className="mt-3">

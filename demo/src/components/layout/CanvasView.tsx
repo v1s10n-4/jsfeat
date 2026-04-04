@@ -15,7 +15,8 @@ import {
   TooltipContent,
   TooltipProvider,
 } from '@/components/ui/tooltip';
-import { Pause, Play, Camera, Maximize, ChevronDown, ChevronUp } from 'lucide-react';
+import { Pause, Play, Camera, Maximize, ChevronDown, ChevronUp, SwitchCamera } from 'lucide-react';
+import type { CameraDevice } from '@/hooks/useWebcam';
 import { cn } from '@/lib/utils';
 
 interface CanvasViewProps {
@@ -31,6 +32,9 @@ interface CanvasViewProps {
     totalMs: number;
     fps: number;
   };
+  cameras?: CameraDevice[];
+  activeDeviceId?: string | null;
+  onSwitchCamera?: (deviceId: string) => void;
 }
 
 const RESOLUTIONS = [
@@ -48,6 +52,9 @@ export default function CanvasView({
   frozen,
   onFreeze,
   profilerDisplay,
+  cameras = [],
+  activeDeviceId,
+  onSwitchCamera,
 }: CanvasViewProps) {
   const isMobile = useIsMobile();
   const [profilerExpanded, setProfilerExpanded] = useState(false);
@@ -86,6 +93,25 @@ export default function CanvasView({
               ))}
             </SelectContent>
           </Select>
+
+          {cameras.length > 1 && onSwitchCamera && (
+            <Select
+              value={activeDeviceId ?? ''}
+              onValueChange={(val) => { if (val) onSwitchCamera(val); }}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SwitchCamera className="size-4 mr-1 shrink-0" />
+                <SelectValue placeholder="Camera" />
+              </SelectTrigger>
+              <SelectContent>
+                {cameras.map((cam) => (
+                  <SelectItem key={cam.deviceId} value={cam.deviceId}>
+                    {cam.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           <Tooltip>
             <TooltipTrigger

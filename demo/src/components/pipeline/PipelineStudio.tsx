@@ -37,7 +37,7 @@ import { Matrix, U8C1 } from 'jsfeat/core';
 
 export default function PipelineStudio() {
   const isMobile = useIsMobile();
-  const { videoRef, start, stop, isActive, error } = useWebcam();
+  const { videoRef, start, stop, isActive, error, cameras, activeDeviceId, switchCamera } = useWebcam();
   const { canvasRef, dimensions, setResolution, capture, getCtx } = useCanvas();
   const profiler = useProfiler();
   const [frozen, setFrozen] = useState(false);
@@ -231,6 +231,9 @@ export default function PipelineStudio() {
             frozen={frozen}
             onFreeze={() => setFrozen((v) => !v)}
             profilerDisplay={profiler.display}
+            cameras={cameras}
+            activeDeviceId={activeDeviceId}
+            onSwitchCamera={switchCamera}
           />
         </div>
 
