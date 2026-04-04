@@ -34,6 +34,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { stageRegistry } from '@/lib/stages';
 import { createDefaultPipeline, type PipelineStage } from '@/lib/pipeline';
 import { Matrix, U8C1 } from 'jsfeat/core';
+import { drawVideoFrame } from '@/lib/videoOrientation';
 
 export default function PipelineStudio() {
   const isMobile = useIsMobile();
@@ -77,7 +78,7 @@ export default function PipelineStudio() {
     const h = dimensions.height;
 
     // 1. Draw video
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     // 2. Prepare gray matrix

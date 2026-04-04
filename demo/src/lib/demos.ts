@@ -18,6 +18,7 @@ import {
   warpAffine,
 } from 'jsfeat/imgproc';
 import { fastCorners, yape06Detect, orbDescribe } from 'jsfeat/features';
+import { drawVideoFrame } from '@/lib/videoOrientation';
 import { lucasKanade } from 'jsfeat/flow';
 import { ransac, createRansacParams, homography2d, affine2d } from 'jsfeat/motion';
 
@@ -123,7 +124,7 @@ const grayscaleDemo: DemoDefinition = {
     _currentParams = { ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -153,7 +154,7 @@ const cannyEdgesDemo: DemoDefinition = {
     _currentParams = { low: 30, high: 80, kernelSize: 5, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -199,7 +200,7 @@ const fastCornersDemo: DemoDefinition = {
     _currentParams = { threshold: 20, border: 3, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -254,7 +255,7 @@ const boxBlurDemo: DemoDefinition = {
     _boxParams = { radius: 4, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -302,7 +303,7 @@ const gaussianBlurDemo: DemoDefinition = {
     _gaussParams = { kernelSize: 5, sigma: 0, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -351,7 +352,7 @@ const pyrDownDemo: DemoDefinition = {
     _pyrParams = { levels: 1, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -428,7 +429,7 @@ const equalizeHistDemo: DemoDefinition = {
   controls: [],
   setup() {},
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -496,7 +497,7 @@ const sobelDemo: DemoDefinition = {
   controls: [],
   setup() {},
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -545,7 +546,7 @@ const scharrDemo: DemoDefinition = {
   controls: [],
   setup() {},
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -599,7 +600,7 @@ const yape06Demo: DemoDefinition = {
     _yapeParams = { laplacianThreshold: 30, eigenThreshold: 25, border: 5, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -680,7 +681,7 @@ const orbMatchDemo: DemoDefinition = {
     _orbTrainCount = 0;
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -878,7 +879,7 @@ const haarFaceDemo: DemoDefinition = {
     };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
 
     // If worker is idle, extract grayscale and post detection request
     if (!_haarPending && _haarWorker) {
@@ -973,7 +974,7 @@ const bbfFaceDemo: DemoDefinition = {
     };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
 
     // If worker is idle, extract grayscale and post detection request
     if (!_bbfPending && _bbfWorker) {
@@ -1061,7 +1062,7 @@ const opticalFlowDemo: DemoDefinition = {
     _ofCurrPyr = null;
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -1240,7 +1241,7 @@ const videoStabDemo: DemoDefinition = {
     // Draw original on left half
     const halfW = (w / 2) | 0;
 
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -1367,7 +1368,7 @@ const videoStabDemo: DemoDefinition = {
         ctx.rotate(corrA);
         ctx.translate(corrX, corrY);
         ctx.translate(-w / 2, -h / 2);
-        ctx.drawImage(video, 0, 0, w, h);
+        drawVideoFrame(ctx, video, w, h);
         ctx.restore();
       }
     }
@@ -1377,7 +1378,7 @@ const videoStabDemo: DemoDefinition = {
     ctx.beginPath();
     ctx.rect(0, 0, halfW, h);
     ctx.clip();
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     ctx.restore();
 
     // Divider line
@@ -1438,7 +1439,7 @@ const warpAffineDemo: DemoDefinition = {
     _warpAffParams = { rotation: 0, scale: 1.0, translateX: 0, translateY: 0, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -1604,7 +1605,7 @@ const homographyDemo: DemoDefinition = {
     canvas.addEventListener('touchend', () => { _homogDragging = -1; });
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
 
     // Handle reset
     if (_homogParams.reset) {
@@ -1840,7 +1841,7 @@ const touchFlowDemo: DemoDefinition = {
     canvas.addEventListener('touchstart', _touchTouchHandler, { passive: false });
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     profiler.start('grayscale');
@@ -2169,7 +2170,7 @@ const cardDetectionDemo: DemoDefinition = {
     };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     // Allocate buffers
@@ -2436,7 +2437,7 @@ const compareDemo: DemoDefinition = {
     _compareParams = { filterA: 'grayscale', filterB: 'canny', splitPos: 50, ...params };
   },
   process(ctx, video, w, h, profiler) {
-    ctx.drawImage(video, 0, 0, w, h);
+    drawVideoFrame(ctx, video, w, h);
     const imageData = ctx.getImageData(0, 0, w, h);
 
     // Grayscale source
