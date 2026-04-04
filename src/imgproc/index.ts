@@ -9,4 +9,5 @@ export {
   scharrDerivatives,
   equalizeHistogram,
   computeIntegralImage,
+  warpAffine,
 } from './imgproc';
