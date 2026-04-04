@@ -23,3 +23,12 @@ export {
   mat3x3Determinant,
   determinant3x3,
 } from './matmath';
+
+export {
+  luSolve,
+  choleskySolve,
+  svdDecompose,
+  svdSolve,
+  svdInvert,
+  eigenVV,
+} from './linalg';
