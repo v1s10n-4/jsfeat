@@ -10,9 +10,10 @@ import {
   scharrDerivatives,
   equalizeHistogram,
   computeIntegralImage,
+  warpAffine,
 } from '../../src/imgproc/imgproc';
 import { Matrix } from '../../src/core/matrix';
-import { U8C1, S32C1, S32C2, ColorCode } from '../../src/core/types';
+import { U8C1, S32C1, S32C2, F32C1, ColorCode } from '../../src/core/types';
 
 // ---------------------------------------------------------------------------
 // grayscale
@@ -429,5 +430,141 @@ describe('computeIntegralImage', () => {
 
     // Total: 4+9+16+25 = 54
     expect(dst_sqsum[8]).toBe(54);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// warpAffine
+// ---------------------------------------------------------------------------
+
+describe('warpAffine', () => {
+  it('identity transform preserves pixel values', () => {
+    const w = 8, h = 8;
+    const src = new Matrix(w, h, U8C1);
+    const dst = new Matrix(w, h, U8C1);
+
+    // Fill with a gradient pattern
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        src.data[y * w + x] = (y * w + x) * 3;
+      }
+    }
+
+    // Identity affine: [1,0,0; 0,1,0; 0,0,1]
+    const transform = new Matrix(3, 3, F32C1);
+    transform.data[0] = 1; transform.data[1] = 0; transform.data[2] = 0;
+    transform.data[3] = 0; transform.data[4] = 1; transform.data[5] = 0;
+    transform.data[6] = 0; transform.data[7] = 0; transform.data[8] = 1;
+
+    warpAffine(src, dst, transform, 0);
+
+    // Interior pixels (not on the last row/col due to bilinear interpolation boundary)
+    // should match the source exactly
+    for (let y = 0; y < h - 1; y++) {
+      for (let x = 0; x < w - 1; x++) {
+        expect(dst.data[y * w + x]).toBe(src.data[y * w + x]);
+      }
+    }
+  });
+
+  it('translation shifts pixels correctly', () => {
+    const w = 16, h = 16;
+    const src = new Matrix(w, h, U8C1);
+    const dst = new Matrix(w, h, U8C1);
+
+    // Fill the center region with a known value
+    for (let y = 4; y < 12; y++) {
+      for (let x = 4; x < 12; x++) {
+        src.data[y * w + x] = 200;
+      }
+    }
+
+    // Translate by (2, 3)
+    const transform = new Matrix(3, 3, F32C1);
+    transform.data[0] = 1; transform.data[1] = 0; transform.data[2] = -2;
+    transform.data[3] = 0; transform.data[4] = 1; transform.data[5] = -3;
+    transform.data[6] = 0; transform.data[7] = 0; transform.data[8] = 1;
+
+    warpAffine(src, dst, transform, 0);
+
+    // After translating source by (-2,-3), the pixel that was at (6,7) in src
+    // should now appear at (6,7) in dst as the value from src(6+2, 7+3) = src(8,10)
+    // Since src(8,10) = 200, dst(6,7) should be 200
+    expect(dst.data[7 * w + 6]).toBe(200);
+
+    // A pixel outside the translated region should be fillValue (0)
+    expect(dst.data[0]).toBe(0);
+  });
+
+  it('90-degree rotation produces expected output', () => {
+    const w = 16, h = 16;
+    const src = new Matrix(w, h, U8C1);
+    const dst = new Matrix(w, h, U8C1);
+
+    // Place a bright block in the top-left quadrant
+    for (let y = 2; y < 6; y++) {
+      for (let x = 2; x < 6; x++) {
+        src.data[y * w + x] = 255;
+      }
+    }
+
+    // 90-degree CCW rotation about center: cos(90)=0, sin(90)=1
+    // Transform: rotate about center (8,8)
+    const cx = w / 2, cy = h / 2;
+    const cosA = 0, sinA = 1; // 90 degrees
+    const transform = new Matrix(3, 3, F32C1);
+    transform.data[0] = cosA;
+    transform.data[1] = -sinA;
+    transform.data[2] = cx - cx * cosA + cy * sinA;
+    transform.data[3] = sinA;
+    transform.data[4] = cosA;
+    transform.data[5] = cy - cx * sinA - cy * cosA;
+    transform.data[6] = 0;
+    transform.data[7] = 0;
+    transform.data[8] = 1;
+
+    warpAffine(src, dst, transform, 0);
+
+    // After 90-degree CCW rotation about center, the top-left bright block
+    // should move to the bottom-left region. Check that the original
+    // top-left position is no longer bright.
+    let topLeftBright = 0;
+    for (let y = 2; y < 6; y++) {
+      for (let x = 2; x < 6; x++) {
+        if (dst.data[y * w + x] > 200) topLeftBright++;
+      }
+    }
+    // Most of the block should have moved away
+    expect(topLeftBright).toBeLessThan(4);
+
+    // The rotated image should have some bright pixels elsewhere
+    let totalBright = 0;
+    for (let i = 0; i < w * h; i++) {
+      if (dst.data[i] > 200) totalBright++;
+    }
+    expect(totalBright).toBeGreaterThan(0);
+  });
+
+  it('fills out-of-bounds pixels with fillValue', () => {
+    const w = 8, h = 8;
+    const src = new Matrix(w, h, U8C1);
+    const dst = new Matrix(w, h, U8C1);
+
+    // Fill entire source with 100
+    for (let i = 0; i < w * h; i++) src.data[i] = 100;
+
+    // Translate by large amount so most destination pixels are out of bounds
+    const transform = new Matrix(3, 3, F32C1);
+    transform.data[0] = 1; transform.data[1] = 0; transform.data[2] = -100;
+    transform.data[3] = 0; transform.data[4] = 1; transform.data[5] = -100;
+    transform.data[6] = 0; transform.data[7] = 0; transform.data[8] = 1;
+
+    const fillVal = 42;
+    warpAffine(src, dst, transform, fillVal);
+
+    // All pixels should be the fill value since source is shifted far away
+    for (let i = 0; i < w * h; i++) {
+      expect(dst.data[i]).toBe(fillVal);
+    }
   });
 });
