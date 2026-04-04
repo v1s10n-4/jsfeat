@@ -29,8 +29,6 @@ jobs:
         run: |
           mkdir -p _site
           cp -r dist-demo/* _site/
-          mkdir -p _site/api
-          cp -r docs/api/* _site/api/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
