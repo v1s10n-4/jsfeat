@@ -17,7 +17,7 @@ Complete recode of the jsfeat demo app from vanilla TypeScript to a React SPA wi
 | Routing | react-router-dom v7 with HashRouter (GitHub Pages) |
 | Drag & Drop | @dnd-kit/core + @dnd-kit/sortable |
 | Icons | lucide-react |
-| API Docs | TypeDoc (auto-generated, embedded via iframe) |
+| API Docs | TypeDoc JSON → custom React renderer with shadcn |
 | E2E Testing | Playwright |
 | State | React Context + hooks (no external state lib) |
 | Deployment | GitHub Pages via GitHub Actions |
@@ -118,22 +118,33 @@ Subtitle on homepage: "Build real-time computer vision pipelines. Default: Tradi
 
 ## Docs Page (`#/docs`)
 
-Embeds the TypeDoc-generated API documentation (already built by `npm run docs` into `docs/api/`). The GitHub Actions deploy workflow copies this to `_site/api/`, so it's available at `/jsfeat/api/`.
+Auto-generated API reference rendered natively in React using TypeDoc's JSON output.
 
-### Implementation
-- Full-page iframe pointing to `/jsfeat/api/index.html`
-- Styled to fill the content area with no visible iframe chrome
-- "Open in new tab" button in the top-right corner for full-screen browsing
-- On mobile: iframe fills viewport below the nav bar
+### How It Works
+1. Build step: `typedoc --json docs/api.json` generates a structured JSON representation of all TSDoc
+2. The JSON file is imported at build time by the React app
+3. A custom `ApiReference.tsx` component iterates over the JSON structure (modules → functions/classes/types) and renders each entry using shadcn components
 
-### Why iframe over re-implementing
-- TypeDoc output stays auto-generated and always in sync with the source TSDoc
-- No hand-written signatures to maintain — single source of truth
-- TypeDoc's own navigation, search, and cross-references work natively
-- Zero maintenance cost when the library API changes
+### Rendering
+- **Module tabs**: shadcn Tabs component — one tab per module (Core, Math, ImgProc, Features, Flow, Detect, Motion, Transform)
+- **Function entries**: shadcn Card with function name as heading, TypeScript signature in a syntax-highlighted `<pre>` block (CSS-only highlighting), one-line description from TSDoc `@summary`
+- **Parameters**: Rendered as a compact table inside each Card (name, type, description)
+- **"Try it →" links**: Mapped to `#/demos/:id` via a manual lookup table (function name → demo id)
+- **Search**: Client-side filter input at the top — filters functions by name across all modules
+- **Responsive**: Tabs become a shadcn Select dropdown on mobile (<768px)
 
-### Dependency
-- `shiki` is no longer needed (removed from dependencies) — TypeDoc handles its own syntax highlighting
+### Build Integration
+- `npm run docs` script updated: `typedoc --json docs/api.json` (replaces HTML output)
+- `docs/api.json` committed to repo (auto-generated, ~200KB)
+- Demo app imports it: `import apiData from '../../docs/api.json'`
+- GitHub Actions workflow updated: no longer needs to copy `docs/api/` to `_site/`
+
+### Advantages
+- Fully themed with shadcn/Tailwind — consistent look with rest of the app
+- Searchable and filterable
+- "Try it" links use react-router natively
+- Auto-generated from TSDoc (single source of truth)
+- No iframe, no external dependencies
 
 ---
 
