@@ -2158,14 +2158,14 @@ const cardDetectionDemo: DemoDefinition = {
   category: 'Detection',
   description: 'Detects rectangular cards via edge detection and perspective-corrects them.',
   controls: [
-    { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 15, step: 2, defaultNum: 5 },
-    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 10, max: 100, step: 1, defaultNum: 30 },
-    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 50, max: 255, step: 1, defaultNum: 100 },
-    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 1000, max: 50000, step: 500, defaultNum: 5000 },
+    { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 15, step: 2, defaultNum: 7 },
+    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 10, max: 150, step: 1, defaultNum: 50 },
+    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 50, max: 255, step: 1, defaultNum: 150 },
+    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 1000, max: 50000, step: 500, defaultNum: 3000 },
   ],
   setup(_canvas, _video, params) {
     _cardParams = {
-      blurKernel: 5, cannyLow: 30, cannyHigh: 100, minContourArea: 5000,
+      blurKernel: 7, cannyLow: 50, cannyHigh: 150, minContourArea: 3000,
       ...params,
     };
   },
@@ -2194,82 +2194,127 @@ const cardDetectionDemo: DemoDefinition = {
     cannyEdges(_cardBlurred!, _cardEdges!, _cardParams.cannyLow ?? 30, _cardParams.cannyHigh ?? 100);
     profiler.end('canny');
 
-    // Collect edge pixels (subsample for performance)
+    // Find card quadrilateral using Hough-like line detection on edge image
     profiler.start('contour');
     const edgeData = _cardEdges!.data;
-    const edgePts: { x: number; y: number }[] = [];
-    const step = 2; // subsample
-    for (let y = 0; y < h; y += step) {
-      for (let x = 0; x < w; x += step) {
-        if (edgeData[y * w + x] === 255) {
-          edgePts.push({ x, y });
-        }
-      }
-    }
+    const minArea = _cardParams.minContourArea ?? 3000;
 
     let detected = false;
     let cardCorners: { x: number; y: number }[] = [];
 
-    if (edgePts.length > 20) {
-      // Convex hull -> simplify -> check for quadrilateral
-      const hull = convexHull(edgePts);
-      const perimeter = hull.reduce((sum, p, i) => {
-        const next = hull[(i + 1) % hull.length];
-        const dx = next.x - p.x, dy = next.y - p.y;
-        return sum + Math.sqrt(dx * dx + dy * dy);
-      }, 0);
-      const epsilon = perimeter * 0.02;
-      const simplified = douglasPeucker(hull.concat([hull[0]]), epsilon);
-      // Remove duplicate closing point
-      const poly = simplified.length > 1 &&
-        simplified[0].x === simplified[simplified.length - 1].x &&
-        simplified[0].y === simplified[simplified.length - 1].y
-        ? simplified.slice(0, -1)
-        : simplified;
+    // Strategy: scan horizontal and vertical lines to find the bounding edges
+    // of rectangular objects. Accumulate edge pixel runs along scan lines.
+    // Much faster than connected components — O(w*h) single pass.
 
-      if (poly.length === 4) {
-        const area = polygonArea(poly);
-        if (area >= (_cardParams.minContourArea ?? 5000)) {
-          detected = true;
-          cardCorners = sortCorners(poly);
+    // 1. Collect edge pixels into a grid of cells for fast spatial lookup
+    const cellSize = 8;
+    const cellsX = Math.ceil(w / cellSize);
+    const cellsY = Math.ceil(h / cellSize);
+    const cellCounts = new Uint16Array(cellsX * cellsY);
+
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (edgeData[y * w + x] === 255) {
+          const cx = (x / cellSize) | 0;
+          const cy = (y / cellSize) | 0;
+          cellCounts[cy * cellsX + cx]++;
         }
-      } else if (poly.length > 4) {
-        // Try to find the best 4-point approximation by picking the 4 vertices
-        // that form the largest quadrilateral
-        let bestArea = 0;
-        let bestQuad: { x: number; y: number }[] = [];
-        const n = poly.length;
-        // For small n, brute-force combinations of 4
-        if (n <= 20) {
-          for (let a = 0; a < n - 3; a++) {
-            for (let b = a + 1; b < n - 2; b++) {
-              for (let c = b + 1; c < n - 1; c++) {
-                for (let d = c + 1; d < n; d++) {
-                  const quad = [poly[a], poly[b], poly[c], poly[d]];
-                  const qArea = polygonArea(quad);
-                  if (qArea > bestArea) {
-                    bestArea = qArea;
-                    bestQuad = quad;
-                  }
-                }
-              }
+      }
+    }
+
+    // 2. Find rectangular regions with high edge density on borders
+    // Scan all possible rectangles (using coarse grid) and score them
+    const minCells = 3; // minimum rectangle size in cells
+    const maxCells = Math.min(cellsX, cellsY);
+    let bestScore = 0;
+
+    // Integral image of cell counts for fast rectangle sum
+    const integral = new Float64Array((cellsX + 1) * (cellsY + 1));
+    for (let y = 0; y < cellsY; y++) {
+      for (let x = 0; x < cellsX; x++) {
+        integral[(y + 1) * (cellsX + 1) + (x + 1)] =
+          cellCounts[y * cellsX + x] +
+          integral[y * (cellsX + 1) + (x + 1)] +
+          integral[(y + 1) * (cellsX + 1) + x] -
+          integral[y * (cellsX + 1) + x];
+      }
+    }
+
+    const rectSum = (x1: number, y1: number, x2: number, y2: number) =>
+      integral[(y2 + 1) * (cellsX + 1) + (x2 + 1)] -
+      integral[y1 * (cellsX + 1) + (x2 + 1)] -
+      integral[(y2 + 1) * (cellsX + 1) + x1] +
+      integral[y1 * (cellsX + 1) + x1];
+
+    // Search for rectangles with card-like aspect ratio
+    // Limit max size to 40% of frame — cards are handheld objects, not the scene
+    const maxRW = Math.min(cellsX, Math.ceil(cellsX * 0.4));
+    const maxRH = Math.min(cellsY, Math.ceil(cellsY * 0.4));
+
+    for (let rh = minCells; rh <= maxRH; rh++) {
+      for (let rw = minCells; rw <= maxRW; rw++) {
+        // Aspect ratio check (card is ~0.72)
+        const aspect = Math.min(rw, rh) / Math.max(rw, rh);
+        if (aspect < 0.5 || aspect > 0.85) continue;
+
+        const pixelArea = rw * rh * cellSize * cellSize;
+        if (pixelArea < minArea) continue;
+
+        for (let y = 0; y <= cellsY - rh; y += 1) {
+          for (let x = 0; x <= cellsX - rw; x += 1) {
+            // Edge pixels on the 4 borders (top, bottom, left, right rows/columns)
+            const topEdge = rectSum(x, y, x + rw - 1, y);
+            const bottomEdge = rectSum(x, y + rh - 1, x + rw - 1, y + rh - 1);
+            const leftEdge = rectSum(x, y + 1, x, y + rh - 2);
+            const rightEdge = rectSum(x + rw - 1, y + 1, x + rw - 1, y + rh - 2);
+            const borderEdge = topEdge + bottomEdge + leftEdge + rightEdge;
+
+            // Interior edge pixels
+            let interiorEdge = 0;
+            if (rw > 2 && rh > 2) {
+              interiorEdge = rectSum(x + 1, y + 1, x + rw - 2, y + rh - 2);
+            }
+
+            // All 4 borders must have edges (not just 2 sides)
+            const borderCells = 2 * (rw + rh) - 4;
+            if (borderCells === 0) continue;
+            const borderDensity = borderEdge / borderCells;
+
+            // Each side must have at least some edges
+            const minSideDensity = 1.5;
+            const topDens = topEdge / rw;
+            const bottomDens = bottomEdge / rw;
+            const leftDens = leftEdge / Math.max(1, rh - 2);
+            const rightDens = rightEdge / Math.max(1, rh - 2);
+            if (topDens < minSideDensity || bottomDens < minSideDensity ||
+                leftDens < minSideDensity || rightDens < minSideDensity) continue;
+
+            // Ratio of border edges to total edges should be high
+            // (card has strong border, interior may have art but less dense)
+            const totalEdge = borderEdge + interiorEdge;
+            if (totalEdge === 0) continue;
+            const borderRatio = borderEdge / totalEdge;
+            if (borderRatio < 0.3) continue; // at least 30% of edges on the border
+
+            // Score: highest border density with low interior noise = card
+            // Don't favor larger rectangles — a small card with sharp edges beats a large fuzzy area
+            const interiorArea = Math.max(1, (rw - 2) * (rh - 2));
+            const interiorDensity = interiorEdge / interiorArea;
+            // Border/interior ratio: card has sharp borders, low interior edges
+            // Normalize by area so small sharp rectangles beat large fuzzy ones
+            const cleanScore = (borderDensity * borderRatio) / (1 + interiorDensity);
+
+            if (cleanScore > bestScore && borderDensity > 4) {
+              bestScore = cleanScore;
+              detected = true;
+              cardCorners = sortCorners([
+                { x: x * cellSize, y: y * cellSize },
+                { x: (x + rw) * cellSize, y: y * cellSize },
+                { x: (x + rw) * cellSize, y: (y + rh) * cellSize },
+                { x: x * cellSize, y: (y + rh) * cellSize },
+              ]);
             }
           }
-        } else {
-          // For larger n, pick the 4 extreme points
-          let minX = poly[0], maxX = poly[0], minY = poly[0], maxY = poly[0];
-          for (const p of poly) {
-            if (p.x < minX.x) minX = p;
-            if (p.x > maxX.x) maxX = p;
-            if (p.y < minY.y) minY = p;
-            if (p.y > maxY.y) maxY = p;
-          }
-          bestQuad = [minX, maxX, minY, maxY];
-          bestArea = polygonArea(bestQuad);
-        }
-        if (bestArea >= (_cardParams.minContourArea ?? 5000)) {
-          detected = true;
-          cardCorners = sortCorners(bestQuad);
         }
       }
     }
@@ -2344,7 +2389,7 @@ const cardDetectionDemo: DemoDefinition = {
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(
-      detected ? `Card detected (${edgePts.length} edge pts)` : `No card found (${edgePts.length} edge pts)`,
+      detected ? 'Card detected' : 'No card found',
       8, h - 8,
     );
   },

@@ -55,8 +55,8 @@
     "lint": "eslint src/",
     "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts'",
     "docs": "typedoc",
-    "demo:dev": "vite --config demo/vite.config.ts",
-    "demo:build": "vite build --config demo/vite.config.ts"
+    "demo:dev": "npm --prefix demo run dev",
+    "demo:build": "npm --prefix demo run build"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

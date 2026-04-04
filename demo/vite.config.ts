@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss()],
-  base: '/jsfeat/',
+  base: command === 'build' ? '/jsfeat/' : '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -14,4 +14,4 @@ export default defineConfig({
   build: {
     outDir: '../dist-demo',
   },
-});
+}));
