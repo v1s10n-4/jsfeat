@@ -9,6 +9,8 @@ import { buildSidebar, setActive } from './ui/sidebar';
 import { buildControls } from './ui/controls';
 import { Profiler, renderProfiler } from './ui/profiler';
 import { buildToolbar } from './ui/toolbar';
+import { renderApiReference } from './pages/apiReference';
+import { renderAbout } from './pages/about';
 
 // =====================================================================
 //  Demo registry  (25 entries, grouped by category)
@@ -373,11 +375,9 @@ function showPage(route: string): void {
   pageContent.style.display = 'block';
 
   if (route === '#/api') {
-    pageContent.innerHTML =
-      '<h2>API Reference</h2><p>Full API docs coming soon. See the <a href="https://github.com/nickclaw/jsfeat" style="color:var(--accent)">GitHub repo</a> for source-level documentation.</p>';
+    renderApiReference(pageContent);
   } else if (route === '#/about') {
-    pageContent.innerHTML =
-      '<h2>About jsfeat</h2><p>jsfeat is a JavaScript/TypeScript computer vision library featuring image processing, feature detection, face detection, optical flow, and geometric transforms.</p>';
+    renderAbout(pageContent);
   }
 }
 
