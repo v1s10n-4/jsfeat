@@ -15,21 +15,10 @@ import {
   cannyEdges,
   sobelDerivatives,
   scharrDerivatives,
-  resample,
-  computeIntegralImage,
   warpAffine,
 } from 'jsfeat/imgproc';
 import { fastCorners, yape06Detect, orbDescribe } from 'jsfeat/features';
 import { lucasKanade } from 'jsfeat/flow';
-import {
-  haarDetectMultiScale,
-  groupRectangles,
-  bbfPrepareCascade,
-  bbfBuildPyramid,
-  bbfDetect,
-  bbfGroupRectangles,
-} from 'jsfeat/detect';
-import { frontalface, bbfFace } from 'jsfeat/cascades';
 import { ransac, createRansacParams, homography2d, affine2d } from 'jsfeat/motion';
 
 // ---------------------------------------------------------------------------
@@ -853,14 +842,13 @@ const orbMatchDemo: DemoDefinition = {
 };
 
 // ---------------------------------------------------------------------------
-// Haar Face Detection
+// Haar Face Detection (Web Worker)
 // ---------------------------------------------------------------------------
 
 let _haarParams: Record<string, any> = {};
-let _haarSmall: Matrix | null = null;
-let _haarIISum: Int32Array | null = null;
-let _haarIISqSum: Int32Array | null = null;
-let _haarIITilted: Int32Array | null = null;
+let _haarWorker: Worker | null = null;
+let _haarPending = false;
+let _haarRects: { x: number; y: number; width: number; height: number }[] = [];
 
 const haarFaceDemo: DemoDefinition = {
   id: 'haarFace',
@@ -874,93 +862,90 @@ const haarFaceDemo: DemoDefinition = {
   ],
   setup(_canvas, _video, params) {
     _haarParams = { scaleFactor: 1.2, minNeighbors: 1, equalize: true, ...params };
+    _haarRects = [];
+    _haarPending = false;
+
+    _haarWorker = new Worker(
+      new URL('../workers/detection.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    _haarWorker.onmessage = (e: MessageEvent<{ rects: typeof _haarRects }>) => {
+      _haarRects = e.data.rects;
+      _haarPending = false;
+    };
+    _haarWorker.onerror = () => {
+      _haarPending = false;
+    };
   },
   process(ctx, video, w, h, profiler) {
     ctx.drawImage(video, 0, 0, w, h);
-    const imageData = ctx.getImageData(0, 0, w, h);
 
-    profiler.start('grayscale');
-    const gray = ensureGray(w, h);
-    jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, gray);
-    profiler.end('grayscale');
+    // If worker is idle, extract grayscale and post detection request
+    if (!_haarPending && _haarWorker) {
+      const imageData = ctx.getImageData(0, 0, w, h);
 
-    // Downsample to avoid freeze
-    const maxDim = 160;
-    const scale = Math.min(maxDim / w, maxDim / h, 1);
-    const dw = (w * scale) | 0;
-    const dh = (h * scale) | 0;
+      profiler.start('grayscale');
+      const gray = ensureGray(w, h);
+      jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, gray);
+      profiler.end('grayscale');
 
-    if (!_haarSmall || _haarSmall.cols !== dw || _haarSmall.rows !== dh) {
-      _haarSmall = new Matrix(dw, dh, U8C1);
+      // Copy gray data for transfer to worker
+      const grayData = new Uint8Array(gray.data.length);
+      grayData.set(gray.data as Uint8Array);
+
+      _haarPending = true;
+      _haarWorker.postMessage(
+        {
+          type: 'haar' as const,
+          data: grayData,
+          width: w,
+          height: h,
+          params: {
+            scaleFactor: _haarParams.scaleFactor,
+            minNeighbors: _haarParams.minNeighbors,
+            equalize: _haarParams.equalize,
+          },
+          scaleX: 1,
+          scaleY: 1,
+        },
+        [grayData.buffer],
+      );
     }
 
-    profiler.start('downsample');
-    resample(gray, _haarSmall, dw, dh);
-    profiler.end('downsample');
-
-    // Optional histogram equalization
-    if (_haarParams.equalize) {
-      profiler.start('equalize');
-      const eqDst = new Matrix(dw, dh, U8C1);
-      equalizeHistogram(_haarSmall, eqDst);
-      eqDst.copyTo(_haarSmall);
-      profiler.end('equalize');
-    }
-
-    // Compute integral images
-    const sz = (dw + 1) * (dh + 1);
-    if (!_haarIISum || _haarIISum.length < sz) {
-      _haarIISum = new Int32Array(sz);
-      _haarIISqSum = new Int32Array(sz);
-      _haarIITilted = new Int32Array(sz);
-    }
-
-    profiler.start('integral');
-    computeIntegralImage(_haarSmall, _haarIISum, _haarIISqSum!, _haarIITilted!);
-    profiler.end('integral');
-
-    profiler.start('detect');
-    const rects = haarDetectMultiScale(
-      _haarIISum, _haarIISqSum!, _haarIITilted!, null,
-      dw, dh, frontalface,
-      _haarParams.scaleFactor ?? 1.2,
-    );
-    const grouped = groupRectangles(rects, _haarParams.minNeighbors ?? 1);
-    profiler.end('detect');
-
-    // Draw boxes scaled back up
-    const invScale = 1 / scale;
+    // Always draw latest rects (even from previous frames)
     ctx.strokeStyle = '#00ff00';
     ctx.lineWidth = 2;
-    for (const r of grouped) {
-      ctx.strokeRect(r.x * invScale, r.y * invScale, r.width * invScale, r.height * invScale);
+    for (const r of _haarRects) {
+      ctx.strokeRect(r.x, r.y, r.width, r.height);
     }
 
-    // Count label
     ctx.fillStyle = '#0f0';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`Faces: ${grouped.length}`, 8, h - 8);
+    ctx.fillText(`Faces: ${_haarRects.length}`, 8, h - 8);
   },
   onParamChange(key, value) {
     _haarParams[key] = value;
   },
   cleanup() {
     _gray = null;
-    _haarSmall = null;
-    _haarIISum = null;
-    _haarIISqSum = null;
-    _haarIITilted = null;
+    if (_haarWorker) {
+      _haarWorker.terminate();
+      _haarWorker = null;
+    }
+    _haarRects = [];
+    _haarPending = false;
   },
 };
 
 // ---------------------------------------------------------------------------
-// BBF Face Detection
+// BBF Face Detection (Web Worker)
 // ---------------------------------------------------------------------------
 
 let _bbfParams: Record<string, any> = {};
-let _bbfSmall: Matrix | null = null;
-let _bbfPrepared = false;
+let _bbfWorker: Worker | null = null;
+let _bbfPending = false;
+let _bbfRects: { x: number; y: number; width: number; height: number }[] = [];
 
 const bbfFaceDemo: DemoDefinition = {
   id: 'bbfFace',
@@ -972,59 +957,76 @@ const bbfFaceDemo: DemoDefinition = {
   ],
   setup(_canvas, _video, params) {
     _bbfParams = { interval: 4, ...params };
-    if (!_bbfPrepared) {
-      bbfPrepareCascade(bbfFace);
-      _bbfPrepared = true;
-    }
+    _bbfRects = [];
+    _bbfPending = false;
+
+    _bbfWorker = new Worker(
+      new URL('../workers/detection.worker.ts', import.meta.url),
+      { type: 'module' },
+    );
+    _bbfWorker.onmessage = (e: MessageEvent<{ rects: typeof _bbfRects }>) => {
+      _bbfRects = e.data.rects;
+      _bbfPending = false;
+    };
+    _bbfWorker.onerror = () => {
+      _bbfPending = false;
+    };
   },
   process(ctx, video, w, h, profiler) {
     ctx.drawImage(video, 0, 0, w, h);
-    const imageData = ctx.getImageData(0, 0, w, h);
 
-    profiler.start('grayscale');
-    const gray = ensureGray(w, h);
-    jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, gray);
-    profiler.end('grayscale');
+    // If worker is idle, extract grayscale and post detection request
+    if (!_bbfPending && _bbfWorker) {
+      const imageData = ctx.getImageData(0, 0, w, h);
 
-    // Downsample for performance
-    const maxDim = 160;
-    const scale = Math.min(maxDim / w, maxDim / h, 1);
-    const dw = (w * scale) | 0;
-    const dh = (h * scale) | 0;
+      profiler.start('grayscale');
+      const gray = ensureGray(w, h);
+      jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, gray);
+      profiler.end('grayscale');
 
-    if (!_bbfSmall || _bbfSmall.cols !== dw || _bbfSmall.rows !== dh) {
-      _bbfSmall = new Matrix(dw, dh, U8C1);
+      const grayData = new Uint8Array(gray.data.length);
+      grayData.set(gray.data as Uint8Array);
+
+      _bbfPending = true;
+      _bbfWorker.postMessage(
+        {
+          type: 'bbf' as const,
+          data: grayData,
+          width: w,
+          height: h,
+          params: {
+            interval: _bbfParams.interval,
+          },
+          scaleX: 1,
+          scaleY: 1,
+        },
+        [grayData.buffer],
+      );
     }
 
-    profiler.start('downsample');
-    resample(gray, _bbfSmall, dw, dh);
-    profiler.end('downsample');
-
-    profiler.start('detect');
-    const interval = _bbfParams.interval ?? 4;
-    const pyr = bbfBuildPyramid(_bbfSmall, 24, 24, interval);
-    const rects = bbfDetect(pyr, bbfFace);
-    const grouped = bbfGroupRectangles(rects, 1);
-    profiler.end('detect');
-
-    const invScale = 1 / scale;
+    // Always draw latest rects (even from previous frames)
     ctx.strokeStyle = '#ff0066';
     ctx.lineWidth = 2;
-    for (const r of grouped) {
-      ctx.strokeRect(r.x * invScale, r.y * invScale, r.width * invScale, r.height * invScale);
+    for (const r of _bbfRects) {
+      ctx.strokeRect(r.x, r.y, r.width, r.height);
     }
 
     ctx.fillStyle = '#ff0066';
     ctx.font = '12px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText(`Faces: ${grouped.length}`, 8, h - 8);
+    ctx.fillText(`Faces: ${_bbfRects.length}`, 8, h - 8);
   },
   onParamChange(key, value) {
     _bbfParams[key] = value;
   },
   cleanup() {
     _gray = null;
-    _bbfSmall = null;
+    if (_bbfWorker) {
+      _bbfWorker.terminate();
+      _bbfWorker = null;
+    }
+    _bbfRects = [];
+    _bbfPending = false;
   },
 };
 
