@@ -14,23 +14,6 @@ import { buildToolbar } from './ui/toolbar';
 //  Demo registry  (25 entries, grouped by category)
 // =====================================================================
 
-function placeholderLoader(
-  meta: { title: string; category: string },
-): () => Promise<{ default: Demo }> {
-  return async () => {
-    const mod = await import('./demos/placeholder');
-    const ph = mod.default;
-    return {
-      default: {
-        ...ph,
-        title: meta.title,
-        category: meta.category,
-        description: `${meta.title} demo — coming soon.`,
-      },
-    };
-  };
-}
-
 const demoRegistry: DemoEntry[] = [
   // ---- Image Processing ----
   {
@@ -105,7 +88,7 @@ const demoRegistry: DemoEntry[] = [
     id: 'orbMatch',
     title: 'ORB Match',
     category: 'Feature Detection',
-    loader: () => import('./demos/orb'),
+    loader: () => import('./demos/orbMatch'),
   },
 
   // ---- Face Detection ----
@@ -119,7 +102,7 @@ const demoRegistry: DemoEntry[] = [
     id: 'bbfFace',
     title: 'BBF Face',
     category: 'Face Detection',
-    loader: placeholderLoader({ title: 'BBF Face', category: 'Face Detection' }),
+    loader: () => import('./demos/bbfFace'),
   },
 
   // ---- Motion ----
@@ -133,7 +116,7 @@ const demoRegistry: DemoEntry[] = [
     id: 'videoStab',
     title: 'Video Stabilization',
     category: 'Motion',
-    loader: placeholderLoader({ title: 'Video Stabilization', category: 'Motion' }),
+    loader: () => import('./demos/videoStab'),
   },
 
   // ---- Transforms ----
@@ -141,13 +124,13 @@ const demoRegistry: DemoEntry[] = [
     id: 'warpAffine',
     title: 'Warp Affine',
     category: 'Transforms',
-    loader: placeholderLoader({ title: 'Warp Affine', category: 'Transforms' }),
+    loader: () => import('./demos/warpAffine'),
   },
   {
     id: 'warpPerspective',
     title: 'Warp Perspective',
     category: 'Transforms',
-    loader: placeholderLoader({ title: 'Warp Perspective', category: 'Transforms' }),
+    loader: () => import('./demos/warpPerspective'),
   },
 
   // ---- Extras ----
@@ -155,19 +138,19 @@ const demoRegistry: DemoEntry[] = [
     id: 'compare',
     title: 'Compare',
     category: 'Extras',
-    loader: placeholderLoader({ title: 'Compare', category: 'Extras' }),
+    loader: () => import('./demos/compare'),
   },
   {
     id: 'pipeline',
     title: 'Pipeline',
     category: 'Extras',
-    loader: placeholderLoader({ title: 'Pipeline', category: 'Extras' }),
+    loader: () => import('./demos/pipeline'),
   },
   {
     id: 'touchFlow',
     title: 'Touch Flow',
     category: 'Extras',
-    loader: placeholderLoader({ title: 'Touch Flow', category: 'Extras' }),
+    loader: () => import('./demos/touchFlow'),
   },
 ];
 
