@@ -185,7 +185,8 @@ export function bbfBuildPyramid(src: Matrix, minWidth: number, minHeight: number
  * @returns Array of raw detection rectangles.
  */
 export function bbfDetect(pyramid: Pyramid, cascade: any): BbfRect[] {
-  const interval = _interval;
+  // _interval is used implicitly via _next and _scaleTo (set by bbfBuildPyramid)
+  void _interval;
   const scale = _scale;
   const next = _next;
   const scale_upto = _scaleTo;

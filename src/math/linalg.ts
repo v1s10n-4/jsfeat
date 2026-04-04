@@ -455,8 +455,7 @@ export function luSolve(A: Matrix, B: Matrix): number {
   const astep = A.cols;
   const ad = A.data;
   const bd = B.data;
-  let t: number,
-    alpha: number,
+  let alpha: number,
     d: number,
     s: number;
 
@@ -609,8 +608,7 @@ export function svdDecompose(
   options: number = 0,
 ): void {
   let at = 0,
-    i = 0,
-    j = 0;
+    i = 0;
   const _m = A.rows;
   const _n = A.cols;
   let m = _m,

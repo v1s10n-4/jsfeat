@@ -96,7 +96,7 @@ export function haarDetectSingleScale(
   let sn: number, tn: number, fn: number, found: boolean = true;
   let stage_thresh: number, stage_sum = 0, tree_sum: number;
   let feature: any, features: any[];
-  let fi_a: number, fi_b: number, fi_c: number, fi_d: number, fw: number, fh: number;
+  let fi_a: number, fi_b: number, fi_c: number, fw: number, fh: number;
 
   let ii_a = 0;
   const ii_b = win_w;

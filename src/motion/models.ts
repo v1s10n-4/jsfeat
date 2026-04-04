@@ -359,13 +359,13 @@ export const homography2d: MotionKernel = {
       const tp0 = to[0], tp1 = to[1], tp2 = to[2], tp3 = to[3];
 
       // set1
-      let A11 = fp0.x, A12 = fp0.y, A13 = 1.0;
-      let A21 = fp1.x, A22 = fp1.y, A23 = 1.0;
-      let A31 = fp2.x, A32 = fp2.y, A33 = 1.0;
+      let A11 = fp0.x, A12 = fp0.y; const A13 = 1.0;
+      let A21 = fp1.x, A22 = fp1.y; const A23 = 1.0;
+      let A31 = fp2.x, A32 = fp2.y; const A33 = 1.0;
 
-      let B11 = tp0.x, B12 = tp0.y, B13 = 1.0;
-      let B21 = tp1.x, B22 = tp1.y, B23 = 1.0;
-      let B31 = tp2.x, B32 = tp2.y, B33 = 1.0;
+      let B11 = tp0.x, B12 = tp0.y; const B13 = 1.0;
+      let B21 = tp1.x, B22 = tp1.y; const B23 = 1.0;
+      let B31 = tp2.x, B32 = tp2.y; const B33 = 1.0;
 
       let detA = determinant3x3(A11, A12, A13, A21, A22, A23, A31, A32, A33);
       let detB = determinant3x3(B11, B12, B13, B21, B22, B23, B31, B32, B33);

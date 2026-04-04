@@ -6,7 +6,6 @@
 
 import { pool } from '../core/cache';
 import { Matrix } from '../core/matrix';
-import { DataBuffer } from '../core/data';
 import { DataType, ColorCode, BOX_BLUR_NOSCALE, S32C2 } from '../core/types';
 import type { TypedArrayUnion } from '../core/types';
 import { getGaussianKernel } from '../math/math';
@@ -198,7 +197,8 @@ function _convol_u8(
   kernel_size: number,
   half_kernel: number,
 ): void {
-  let i = 0, j = 0, k = 0, sp = 0, dp = 0, sum = 0, sum1 = 0, sum2 = 0, sum3 = 0, f0 = filter[0], fk = 0;
+  let i = 0, j = 0, k = 0, sp = 0, dp = 0, sum = 0, sum1 = 0, sum2 = 0, sum3 = 0, fk = 0;
+  const f0 = filter[0];
   const w2 = w << 1, w3 = w * 3, w4 = w << 2;
   // hor pass
   for (; i < h; ++i) {
@@ -301,7 +301,8 @@ function _convol(
   kernel_size: number,
   half_kernel: number,
 ): void {
-  let i = 0, j = 0, k = 0, sp = 0, dp = 0, sum = 0.0, sum1 = 0.0, sum2 = 0.0, sum3 = 0.0, f0 = filter[0], fk = 0.0;
+  let i = 0, j = 0, k = 0, sp = 0, dp = 0, sum = 0.0, sum1 = 0.0, sum2 = 0.0, sum3 = 0.0, fk = 0.0;
+  const f0 = filter[0];
   const w2 = w << 1, w3 = w * 3, w4 = w << 2;
   // hor pass
   for (; i < h; ++i) {
@@ -419,7 +420,9 @@ export function grayscale(
   // this is default image data representation in browser
   if (typeof code === 'undefined') { code = ColorCode.RGBA2GRAY; }
   let x = 0, y = 0, i = 0, j = 0, ir = 0, jr = 0;
-  let coeff_r = 4899, coeff_g = 9617, coeff_b = 1868, cn = 4;
+  let coeff_r = 4899, cn = 4;
+  const coeff_g = 9617;
+  let coeff_b = 1868;
 
   if (code == ColorCode.BGRA2GRAY || code == ColorCode.BGR2GRAY) {
     coeff_r = 1868;
@@ -1019,11 +1022,10 @@ export function equalizeHistogram(src: Matrix, dst: Matrix): void {
   dst.resize(w, h, src.channel);
 
   const dst_d = dst.data, size = w * h;
-  let i = 0, prev = 0, norm: number;
-  let hist0: Int32Array;
+  let i = 0, prev = 0;
 
   const hist0_node = pool.get(256 << 2);
-  hist0 = hist0_node.i32;
+  const hist0 = hist0_node.i32;
   for (; i < 256; ++i) hist0[i] = 0;
   for (i = 0; i < size; ++i) {
     ++hist0[src_d[i]];
@@ -1034,7 +1036,7 @@ export function equalizeHistogram(src: Matrix, dst: Matrix): void {
     prev = hist0[i] += prev;
   }
 
-  norm = 255 / size;
+  const norm = 255 / size;
   for (i = 0; i < size; ++i) {
     dst_d[i] = (hist0[src_d[i]] * norm + 0.5) | 0;
   }
@@ -1058,7 +1060,8 @@ export function cannyEdges(src: Matrix, dst: Matrix, low_thresh: number, high_th
   dst.resize(w, h, src.channel);
 
   const dst_d = dst.data;
-  let i = 0, j = 0, grad = 0, w2 = w << 1, _grad = 0, suppress = 0, f = 0, x = 0, y = 0, s = 0;
+  let i = 0, j = 0, grad = 0, _grad = 0, suppress = 0, f = 0, x = 0, y = 0, s = 0;
+  const w2 = w << 1;
   let tg22x = 0, tg67x = 0;
 
   // cache buffers
@@ -1072,7 +1075,8 @@ export function cannyEdges(src: Matrix, dst: Matrix, low_thresh: number, high_th
   const stack = stack_node.i32;
   const dxdy = dxdy_node.i32;
   const dxdy_m = new Matrix(w, h, S32C2, dxdy_node.data);
-  let row0 = 1, row1 = (w + 2 + 1) | 0, row2 = (2 * (w + 2) + 1) | 0, map_w = (w + 2) | 0, map_i = (map_w + 1) | 0, stack_i = 0;
+  const map_w = (w + 2) | 0;
+  let row0 = 1, row1 = (w + 2 + 1) | 0, row2 = (2 * (w + 2) + 1) | 0, map_i = (map_w + 1) | 0, stack_i = 0;
 
   sobelDerivatives(src, dxdy_m);
 
