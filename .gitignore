@@ -3,6 +3,7 @@ dist/
 dist-demo/
 coverage/
 docs/api/
+docs/api.json
 *.tsbuildinfo
 .DS_Store
 .idea/

@@ -10,5 +10,6 @@
     "src/transform/index.ts",
     "src/cascades/index.ts"
   ],
-  "out": "docs/api"
+  "out": "docs/api",
+  "json": "docs/api.json"
 }
