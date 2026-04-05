@@ -139,3 +139,35 @@ along the edge (not toward center), and the median filters out internal edge hit
 - IMPROVEMENT confirmed: 28→32 passes
 - **COMMIT and GAIN 1 LIFE → LIFE=3/3**
 
+
+## [RUN_9_RESULTS]
+- **28 pass / 20 fail** (50px threshold)
+- N=9, LIFE=2/3 (LOST 1 LIFE — regression from 32→28)
+- Change: raised Scharr threshold 30→50
+- REGRESSION: 4 previously passing images now fail. The higher threshold removes useful Scharr edges.
+- Reverted immediately.
+- The Scharr threshold at 30 is optimal — it adds useful card border info.
+- The 16 remaining failures need a different strategy.
+
+
+### Strategy with 1 life remaining
+
+With only 1 life, I cannot afford any regression. Every change must be tested carefully.
+
+The safest approach: instead of modifying the detection algorithm, focus on changes that
+ONLY affect failing images without any risk to passing ones.
+
+Idea: add a SECONDARY detection pass. If the primary detection produces a quad with 
+accuracy > threshold AND ground truth is available, try an alternative approach for that specific image.
+
+But ground truth should never be used in the pipeline!
+
+Alternative safe idea: the `buildCardCorners` fallback is still used for some images
+(when approxPoly gives >4 or degenerate corners). These produce axis-aligned rects that
+are always wrong for tilted cards. If I can make these cases produce better results
+WITHOUT changing the poly=4 path, I might gain passes without risking regressions.
+
+Let me check: how many of the 16 failures use buildCardCorners vs approxPoly corners?
+The debug info shows pts=4 for all — so they ALL use approxPoly. The issue is the 
+QUALITY of the approxPoly corners, not which path is used.
+
