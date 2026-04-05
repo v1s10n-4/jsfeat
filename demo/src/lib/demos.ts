@@ -2101,7 +2101,11 @@ const cardDetectionDemo: DemoDefinition = {
     };
   },
   process(ctx, video, w, h, profiler) {
-    drawVideoFrame(ctx, video, w, h);
+    // Skip drawVideoFrame when video has no content (e.g., dummy element for static images).
+    // The caller is responsible for drawing the frame onto ctx before calling process().
+    if (video.readyState >= 2) {
+      drawVideoFrame(ctx, video, w, h);
+    }
     const imageData = ctx.getImageData(0, 0, w, h);
 
     // Allocate buffers
