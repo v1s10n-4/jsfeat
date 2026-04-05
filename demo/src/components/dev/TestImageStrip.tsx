@@ -68,7 +68,7 @@ export default function TestImageStrip({
 
       {/* Horizontal scroll strip */}
       <ScrollArea className="w-full whitespace-nowrap rounded-md border border-border/50">
-        <div className="flex gap-4 p-2">
+        <div className="flex gap-4 px-2 py-3">
           {testCategories.map((category) => {
             const categoryImages = testImages.filter((img) => img.category === category);
             return (

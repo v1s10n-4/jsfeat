@@ -211,7 +211,13 @@ export default function DevPage() {
       {/* Main area: canvas left, sidebar right — fills remaining height */}
       <div className="flex gap-4 flex-1 min-h-0 overflow-hidden">
         {/* DebugCanvas — flex-[3], constrained to available height */}
-        <div className="flex-[3] min-w-0 overflow-hidden">
+        <div className="flex-[3] min-w-0 overflow-hidden flex flex-col">
+          {/* Current image label */}
+          {selectedImage && !isWebcam && (
+            <div className="text-xs font-mono text-muted-foreground mb-1 truncate">
+              {selectedImage.replace('/test-images/', '')}
+            </div>
+          )}
           <DebugCanvas
             imageSrc={isWebcam ? null : selectedImage}
             videoRef={videoRef}
@@ -242,8 +248,8 @@ export default function DevPage() {
         </div>
       </div>
 
-      {/* Bottom: TestImageStrip — fixed min height so thumbnails aren't cropped */}
-      <div className="flex-shrink-0 min-h-[130px]">
+      {/* Bottom: TestImageStrip */}
+      <div className="flex-shrink-0">
       <TestImageStrip
         selectedImage={selectedImage}
         onSelectImage={handleSelectImage}
