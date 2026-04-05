@@ -2168,6 +2168,12 @@ const cardDetectionDemo: DemoDefinition = {
     // Smooth threshold across frames to prevent blob flickering
     _cardPrevThreshold = _cardPrevThreshold > 0 ? _cardPrevThreshold * 0.7 + rawThresh * 0.3 : rawThresh;
     for (let i = 0; i < w * h; i++) ed[i] = bd[i] > _cardPrevThreshold ? 255 : 0;
+
+    // Binary erosion: shrink the blob to remove thin background-merged edges.
+    // Box blur the binary mask then re-threshold at 200 (~78%) — only thick regions survive.
+    boxBlurGray(_cardEdges!, _cardBlurred!, 2);
+    for (let i = 0; i < w * h; i++) ed[i] = bd[i] > 200 ? 255 : 0;
+
     profiler.end('morph');
 
     // Debug: pipeline output thumbnail (top-left)
