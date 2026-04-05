@@ -18,6 +18,7 @@ import {
   warpAffine,
   findContours,
   approxPoly,
+  adaptiveThreshold,
 } from 'jsfeat/imgproc';
 import { fastCorners, yape06Detect, orbDescribe } from 'jsfeat/features';
 import { drawVideoFrame } from '@/lib/videoOrientation';
@@ -2067,13 +2068,13 @@ const cardDetectionDemo: DemoDefinition = {
   description: 'Detects rectangular cards via edge detection and perspective-corrects them.',
   controls: [
     { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 21, step: 2, defaultNum: 9 },
-    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 5, max: 150, step: 1, defaultNum: 50 },
-    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 20, max: 255, step: 1, defaultNum: 150 },
+    { type: 'slider', key: 'cannyLow', label: 'Block Size', min: 3, max: 99, step: 2, defaultNum: 51 },
+    { type: 'slider', key: 'cannyHigh', label: 'Threshold', min: 10, max: 200, step: 5, defaultNum: 50 },
     { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 200, max: 50000, step: 100, defaultNum: 500 },
   ],
   setup(_canvas, _video, params) {
     _cardParams = {
-      blurKernel: 9, cannyLow: 50, cannyHigh: 150, minContourArea: 500,
+      blurKernel: 9, cannyLow: 51, cannyHigh: 50, minContourArea: 500,
       ...params,
     };
   },
@@ -2098,8 +2099,20 @@ const cardDetectionDemo: DemoDefinition = {
     gaussianBlur(_cardGray, _cardBlurred!, ks, 0);
     profiler.end('blur');
 
+    // Use adaptive thresholding to create a binary mask
+    // Card = dark object on light desk → foreground pixels are below local mean
     profiler.start('canny');
-    cannyEdges(_cardBlurred!, _cardEdges!, _cardParams.cannyLow ?? 30, _cardParams.cannyHigh ?? 100);
+    const blockSz = Math.max(3, (_cardParams.cannyLow ?? 50) | 1); // reuse cannyLow as block size (must be odd)
+    const threshConst = _cardParams.cannyHigh ?? 150; // reuse cannyHigh as threshold constant
+    // Invert: we want card (darker) as foreground (255)
+    // adaptiveThreshold sets pixels > (mean - constant) to maxValue
+    // For dark-on-light: we want pixels BELOW mean, so use negative constant approach
+    // Actually: set dst[i] = (src[i] > mean[i] - constant) ? 255 : 0
+    // We want dark pixels as foreground: invert the result
+    adaptiveThreshold(_cardBlurred!, _cardEdges!, 255, 0, blockSz, threshConst / 10);
+    // Invert: swap foreground/background so card is white
+    const ed = _cardEdges!.data;
+    for (let ei = 0; ei < w * h; ei++) ed[ei] = ed[ei] ? 0 : 255;
     profiler.end('canny');
 
     profiler.start('contour');
