@@ -104,7 +104,7 @@ export function adaptiveThreshold(
 ### Algorithm
 
 1. Compute local mean image:
-   - MEAN: `boxBlurGray(src, meanImg, blockSize / 2)`
+   - MEAN: `boxBlurGray(src, meanImg, (blockSize - 1) / 2)` (radius = half the block, matching the existing boxBlurGray signature which takes a radius, not diameter)
    - GAUSSIAN: `gaussianBlur(src, meanImg, blockSize, 0)`
 2. For each pixel: `dst[i] = (src[i] > meanImg[i] - constant) ? maxValue : 0`
 
@@ -184,8 +184,27 @@ Backward mapping with bilinear interpolation (same approach as existing `warpAff
 
 ---
 
+## Documentation
+
+All three functions and both enums/interfaces must have TSDoc comments following the existing pattern:
+
+```typescript
+/**
+ * Brief description.
+ *
+ * @param paramName - Description
+ * @returns Description (for findContours)
+ */
+```
+
+After implementation:
+- Regenerate `docs/api.json` via `npm run docs` (TypeDoc JSON output)
+- The React demo's API Reference page auto-renders from this JSON
+
+---
+
 ## Files Changed
 
-- **Modify:** `src/imgproc/imgproc.ts` — Add all three functions + types
-- **Modify:** `src/imgproc/index.ts` — Export new functions and types
+- **Modify:** `src/imgproc/imgproc.ts` — Add all three functions + types + TSDoc
+- **Modify:** `src/imgproc/index.ts` — Export: `findContours`, `approxPoly`, `adaptiveThreshold`, `warpPerspective`, `Contour`, `ContourMode`, `AdaptiveMethod`
 - **Modify:** `test/imgproc/imgproc.test.ts` — Add tests for all three functions
