@@ -2202,10 +2202,50 @@ const cardDetectionDemo: DemoDefinition = {
       const aspect = Math.min(br.width, br.height) / Math.max(br.width, br.height);
       if (aspect < 0.35) continue;
 
-      // Try progressive simplification to get a 4-sided polygon
-      let poly = approxPoly(contour, contour.perimeter * 0.02);
+      // Convex hull first to eliminate concavities, then simplify to 4-sided polygon.
+      // Simple Graham scan on contour points.
+      const pts = contour.points;
+      const hullPts: { x: number; y: number }[] = [];
+      if (pts.length >= 4) {
+        // Find lowest-rightmost point
+        let startIdx = 0;
+        for (let pi = 1; pi < pts.length; pi++) {
+          if (pts[pi].y > pts[startIdx].y || (pts[pi].y === pts[startIdx].y && pts[pi].x > pts[startIdx].x)) {
+            startIdx = pi;
+          }
+        }
+        const start = pts[startIdx];
+        // Sort by polar angle from start
+        const sorted = pts.slice().sort((a, b) => {
+          const angA = Math.atan2(a.y - start.y, a.x - start.x);
+          const angB = Math.atan2(b.y - start.y, b.x - start.x);
+          return angA - angB || ((a.x - start.x) ** 2 + (a.y - start.y) ** 2) - ((b.x - start.x) ** 2 + (b.y - start.y) ** 2);
+        });
+        // Build hull
+        for (const p of sorted) {
+          while (hullPts.length >= 2) {
+            const a = hullPts[hullPts.length - 2], b = hullPts[hullPts.length - 1];
+            if ((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) <= 0) hullPts.pop();
+            else break;
+          }
+          hullPts.push(p);
+        }
+      }
+
+      // Build a virtual contour from the hull for approxPoly
+      const hullContour = hullPts.length >= 4 ? {
+        points: hullPts,
+        area: contour.area,
+        perimeter: hullPts.reduce((sum, p, i) => {
+          const n = hullPts[(i + 1) % hullPts.length];
+          return sum + Math.sqrt((n.x - p.x) ** 2 + (n.y - p.y) ** 2);
+        }, 0),
+        boundingRect: contour.boundingRect,
+      } : contour;
+
+      let poly = approxPoly(hullContour, hullContour.perimeter * 0.02);
       for (let ep = 0.04; poly.length > 4 && ep <= 0.12; ep += 0.02) {
-        poly = approxPoly(contour, contour.perimeter * ep);
+        poly = approxPoly(hullContour, hullContour.perimeter * ep);
       }
       // If still 5 points, merge the two closest adjacent vertices
       if (poly.length === 5) {

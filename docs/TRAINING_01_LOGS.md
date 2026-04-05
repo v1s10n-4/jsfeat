@@ -38,3 +38,25 @@ Looking at the pipeline:
 - IMPROVEMENT confirmed: all previous 16 passes still pass, 8 new passes
 - **COMMIT and GAIN 1 LIFE → LIFE=4/4 (capped at MAX_LIFE=3)**
 
+
+## [RUN_3_RESULTS]
+- **24 pass / 24 fail** (50px threshold)
+- N=3, LIFE=3/3
+- Change: reduced morph blur radius 4→3
+- No difference from RUN_2. The morph radius change alone doesnt fix the overshooting corners.
+- Continue to step 5: need a different approach.
+
+### Analysis
+The morph blob shape is the problem, not just its size. The blob follows the card art edge density, not the card border. approxPoly on this irregular blob gives corners that overshoot.
+
+The real fix: need to use the Canny edges at the card border for corner positions, not the morph blob contour. The morph blob should only identify WHERE the card is, not define its EXACT corners.
+
+
+## [RUN_4_RESULTS]
+- **28 pass / 20 fail** (50px threshold)
+- N=4, LIFE=3/3
+- Change: added convex hull (Graham scan) before approxPoly to eliminate contour concavities
+- Improvement: +4 passes (24→28), need to verify no regressions
+- IMPROVEMENT confirmed: ratio of new passes to new fails is positive (+4, -0)
+- **COMMIT and GAIN 1 LIFE → LIFE=3/3 (capped at MAX)**
+
