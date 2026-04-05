@@ -2474,6 +2474,25 @@ const cardDetectionDemo: DemoDefinition = {
   },
 };
 
+/** Expose card detection internal buffers for the debug workbench. */
+export function getCardDebugBuffers() {
+  return {
+    gray: _cardGray,
+    edges: _cardEdges,
+    blurred: _cardBlurred,
+    smoothedCorners: _cardSmoothedCorners,
+    debugInfo: _cardDebugInfo,
+    qualityHistory: _cardQualityHistory,
+    lastRectFill: _cardLastRectFill,
+    lastAspect: _cardLastAspect,
+    params: _cardParams,
+    graceFrames: _cardGraceFrames,
+    prevThreshold: _cardPrevThreshold,
+  };
+}
+
+export { cardDetectionDemo };
+
 // ---------------------------------------------------------------------------
 // Side-by-Side Compare
 // ---------------------------------------------------------------------------
