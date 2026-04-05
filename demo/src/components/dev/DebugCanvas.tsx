@@ -353,19 +353,19 @@ export default function DebugCanvas({
         </div>
       </div>
 
-      {/* Stacked canvases */}
-      <div className="relative inline-block">
+      {/* Stacked canvases — constrained height to fit viewport */}
+      <div className="relative inline-block max-h-[60vh] overflow-hidden">
         {/* Base canvas: pipeline draws here */}
         <canvas
           ref={baseCanvasRef}
-          className="block max-w-full"
-          style={{ display: 'block' }}
+          className="block max-w-full max-h-[60vh]"
+          style={{ display: 'block', objectFit: 'contain' }}
         />
         {/* Overlay canvas: debug colors drawn here, positioned on top */}
         <canvas
           ref={overlayCanvasRef}
-          className="pointer-events-none absolute inset-0 max-w-full"
-          style={{ position: 'absolute', top: 0, left: 0 }}
+          className="pointer-events-none absolute inset-0 max-w-full max-h-[60vh]"
+          style={{ position: 'absolute', top: 0, left: 0, objectFit: 'contain' }}
         />
       </div>
 
