@@ -69,12 +69,16 @@ export default function DevPage() {
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(loadVerdicts);
   const [notes, setNotes] = useState<string>(loadNotes);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [accuracyThreshold, setAccuracyThreshold] = useState(50); // pixels
   const [annotationMode, setAnnotationMode] = useState(false);
   const [annotationEdits, setAnnotationEdits] = useState<Record<string, CornerTuple>>({});
   const [exportToast, setExportToast] = useState(false);
 
   // Latest metrics ref used by handleRunAll without stale closure issues
   const latestMetricsRef = useRef<DetectionMetrics | null>(null);
+
+  // Promise resolver for onProcessingComplete (batch Run All)
+  const processingResolveRef = useRef<(() => void) | null>(null);
 
   // Ground truth for selected image — annotation edits take priority
   const manifestGroundTruth: GroundTruth | null = selectedImage
@@ -212,7 +216,23 @@ export default function DevPage() {
   }, [selectedImage, isWebcam]);
 
   // -------------------------------------------------------------------------
-  // Run all — iterate test images, wait 300 ms each, record pass/fail
+  // Processing complete callback (for promise-based Run All)
+  // -------------------------------------------------------------------------
+  const handleProcessingComplete = useCallback(() => {
+    processingResolveRef.current?.();
+    processingResolveRef.current = null;
+  }, []);
+
+  function waitForProcessing(): Promise<void> {
+    return new Promise((resolve) => {
+      processingResolveRef.current = resolve;
+      // Fallback timeout in case the callback never fires
+      setTimeout(() => { resolve(); processingResolveRef.current = null; }, 2000);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Run all — accuracy-based pass/fail using ground truth
   // -------------------------------------------------------------------------
   const handleRunAll = useCallback(async () => {
     if (batchRunning) return;
@@ -222,17 +242,25 @@ export default function DevPage() {
 
     for (const img of testImages) {
       setSelectedImage(img.path);
-      // Give DebugCanvas time to process the image and call onMetricsUpdate
-      await new Promise<void>((res) => setTimeout(res, 300));
+      await waitForProcessing();
 
       const m = latestMetricsRef.current;
-      nextVerdicts[img.path] = m?.detected ? 'pass' : 'fail';
+      if (!img.groundTruth) {
+        // No ground truth — can't evaluate
+        nextVerdicts[img.path] = 'untested';
+      } else if (!m?.detected || !m.accuracy) {
+        // Not detected or no accuracy computed
+        nextVerdicts[img.path] = 'fail';
+      } else {
+        // Pass if mean corner distance is within threshold
+        nextVerdicts[img.path] = m.accuracy.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+      }
     }
 
     setVerdicts(nextVerdicts);
     saveVerdicts(nextVerdicts);
     setBatchRunning(false);
-  }, [batchRunning, verdicts]);
+  }, [batchRunning, verdicts, accuracyThreshold]);
 
   // -------------------------------------------------------------------------
   // Derived canvas dimensions (used for PipelineStages)
@@ -325,6 +353,7 @@ export default function DevPage() {
             frozen={frozen}
             params={params}
             onMetricsUpdate={handleMetricsUpdate}
+            onProcessingComplete={handleProcessingComplete}
             scale={scale}
             groundTruth={currentGroundTruth}
             annotationMode={annotationMode}
@@ -354,6 +383,18 @@ export default function DevPage() {
 
       {/* Bottom: TestImageStrip */}
       <div className="flex-shrink-0">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-[10px] text-muted-foreground">Pass threshold:</span>
+        <input
+          type="number"
+          className="w-14 h-6 rounded border border-border bg-background px-1 text-xs text-center"
+          value={accuracyThreshold}
+          onChange={(e) => setAccuracyThreshold(Number(e.target.value) || 50)}
+          min={5}
+          max={500}
+        />
+        <span className="text-[10px] text-muted-foreground">px (mean corner distance)</span>
+      </div>
       <TestImageStrip
         selectedImage={selectedImage}
         onSelectImage={handleSelectImage}
