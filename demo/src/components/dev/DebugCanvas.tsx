@@ -348,16 +348,6 @@ export default function DebugCanvas({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Redraw overlay when clicked coordinate changes (to show/move the crosshair)
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    if (isWebcam) return;
-    const canvas = baseCanvasRef.current;
-    if (!canvas) return;
-    drawOverlays(canvas.width, canvas.height);
-  }, [clickedCoord, isWebcam, drawOverlays]);
-
-  // ---------------------------------------------------------------------------
   // Coordinate picker — click on the base canvas in static-image mode
   // ---------------------------------------------------------------------------
   function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
@@ -452,6 +442,14 @@ export default function DebugCanvas({
       octx.stroke();
     }
   }, [groundTruth, scale]);
+
+  // Redraw overlay when clicked coordinate changes (to show/move the crosshair)
+  useEffect(() => {
+    if (isWebcam) return;
+    const canvas = baseCanvasRef.current;
+    if (!canvas) return;
+    drawOverlays(canvas.width, canvas.height);
+  }, [clickedCoord, isWebcam, drawOverlays]);
 
   // ---------------------------------------------------------------------------
   // Metrics reporter
