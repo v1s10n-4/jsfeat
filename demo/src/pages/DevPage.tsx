@@ -389,34 +389,18 @@ export default function DevPage() {
             onResetParams={handleResetParams}
             metrics={metrics}
             verdict={selectedVerdict}
-            onRetest={async () => {
+            onRetest={() => {
               if (!selectedImage) return;
-              const img = testImages.find((i) => i.path === selectedImage);
-              if (!img?.groundTruth) return;
-
-              // Process image on offscreen canvas (same as Run All)
-              const el = await new Promise<HTMLImageElement>((resolve, reject) => {
-                const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = img.path;
-              });
-              const c = document.createElement('canvas');
-              const ctx = c.getContext('2d', { willReadFrequently: true })!;
-              const s = scale;
-              const cw = Math.round(el.naturalWidth * s), ch = Math.round(el.naturalHeight * s);
-              c.width = cw; c.height = ch;
-              resetCardTemporalState();
-              cardDetectionDemo.setup(c, document.createElement('video'), params);
-              ctx.drawImage(el, 0, 0, cw, ch);
-              const stub = { start: () => {}, end: () => {}, frameStart: () => {}, frameEnd: () => {} };
-              cardDetectionDemo.process(ctx, document.createElement('video'), cw, ch, stub as any);
-              const bufs = getCardDebugBuffers();
-              const corners = bufs.smoothedCorners;
-              let v: 'pass' | 'fail' = 'fail';
-              if (corners && corners.length >= 4) {
-                const acc = computeAccuracy(corners, img.groundTruth, s);
-                v = acc.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+              const m = latestMetricsRef.current;
+              const gt = currentGroundTruthRef.current;
+              if (!gt || !m?.detected || !m.accuracy) {
+                const next = { ...verdicts, [selectedImage]: 'fail' as const };
+                setVerdicts(next); saveVerdicts(next);
+              } else {
+                const v = m.accuracy.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+                const next = { ...verdicts, [selectedImage]: v as 'pass' | 'fail' };
+                setVerdicts(next); saveVerdicts(next);
               }
-              const next = { ...verdicts, [selectedImage]: v };
-              setVerdicts(next); saveVerdicts(next);
             }}
           />
         </div>
