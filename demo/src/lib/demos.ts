@@ -2339,10 +2339,10 @@ const cardDetectionDemo: DemoDefinition = {
 
         // Sample along edge, scan perpendicularly for nearest Canny edge
         const offsets: number[] = [];
-        for (let si = 1; si <= 8; si++) {
-          const t = si / 10;
+        for (let si = 1; si <= 16; si++) {
+          const t = si / 18;
           const sx = p1.x + edx * t, sy = p1.y + edy * t;
-          for (let sd = -3; sd <= 15; sd++) {
+          for (let sd = -20; sd <= 15; sd++) {
             const px = Math.round(sx + nx * sd);
             const py = Math.round(sy + ny * sd);
             if (px >= 0 && py >= 0 && px < w && py < h && cannyOrig[py * w + px] > 0) {
