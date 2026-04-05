@@ -23,242 +23,289 @@ export const testImages: TestImage[] = [
     "path": "/test-images/paper-bg/Photo-1.jpeg",
     "filename": "Photo-1.jpeg",
     "category": "paper-bg",
-    "groundTruth": { "corners": [{"x":538,"y":298},{"x":1219,"y":266},{"x":1212,"y":605},{"x":540,"y":616}] }
+    "groundTruth": { "corners": [{"x":574,"y":245},{"x":1197,"y":230},{"x":1255,"y":601},{"x":494,"y":616}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-2.jpeg",
     "filename": "Photo-2.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":793,"y":126},{"x":1284,"y":413},{"x":949,"y":738},{"x":455,"y":354}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-3.jpeg",
     "filename": "Photo-3.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":750,"y":136},{"x":1171,"y":142},{"x":1210,"y":639},{"x":660,"y":626}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-4.jpeg",
     "filename": "Photo-4.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":754,"y":159},{"x":1181,"y":159},{"x":1234,"y":669},{"x":675,"y":664}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-5.jpeg",
     "filename": "Photo-5.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":855,"y":131},{"x":1381,"y":390},{"x":1097,"y":735},{"x":542,"y":376}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-6.jpeg",
     "filename": "Photo-6.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":1238,"y":191},{"x":1335,"y":539},{"x":588,"y":581},{"x":631,"y":226}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-7.jpeg",
     "filename": "Photo-7.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":704,"y":182},{"x":1135,"y":165},{"x":1209,"y":684},{"x":643,"y":703}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-8.jpeg",
     "filename": "Photo-8.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":858,"y":100},{"x":1356,"y":364},{"x":1058,"y":681},{"x":537,"y":327}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-9.jpeg",
     "filename": "Photo-9.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":1186,"y":166},{"x":1270,"y":499},{"x":538,"y":552},{"x":586,"y":203}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-10.jpeg",
     "filename": "Photo-10.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":728,"y":153},{"x":1140,"y":151},{"x":1176,"y":630},{"x":632,"y":622}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-11.jpeg",
     "filename": "Photo-11.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":814,"y":114},{"x":1323,"y":340},{"x":1072,"y":659},{"x":518,"y":354}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-12.jpeg",
     "filename": "Photo-12.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":615,"y":210},{"x":1214,"y":202},{"x":1270,"y":538},{"x":544,"y":548}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-13.jpeg",
     "filename": "Photo-13.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":733,"y":183},{"x":1152,"y":173},{"x":1224,"y":670},{"x":672,"y":686}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-14.jpeg",
     "filename": "Photo-14.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":815,"y":126},{"x":1323,"y":374},{"x":1038,"y":698},{"x":503,"y":361}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-15.jpeg",
     "filename": "Photo-15.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":610,"y":205},{"x":1212,"y":214},{"x":1234,"y":565},{"x":506,"y":544}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-16.jpeg",
     "filename": "Photo-16.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":1185,"y":216},{"x":1232,"y":561},{"x":499,"y":572},{"x":579,"y":228}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-17.jpeg",
     "filename": "Photo-17.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":954,"y":123},{"x":1291,"y":304},{"x":858,"y":732},{"x":499,"y":456}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-18.jpeg",
     "filename": "Photo-18.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":703,"y":188},{"x":1123,"y":168},{"x":1210,"y":667},{"x":656,"y":693}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-19.jpeg",
     "filename": "Photo-19.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":697,"y":197},{"x":1123,"y":185},{"x":1191,"y":704},{"x":626,"y":713}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-20.jpeg",
     "filename": "Photo-20.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":805,"y":125},{"x":1308,"y":365},{"x":1032,"y":689},{"x":503,"y":362}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-21.jpeg",
     "filename": "Photo-21.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":617,"y":234},{"x":1222,"y":219},{"x":1292,"y":570},{"x":549,"y":593}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-22.jpeg",
     "filename": "Photo-22.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":771,"y":169},{"x":1191,"y":169},{"x":1244,"y":667},{"x":692,"y":664}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-23.jpeg",
     "filename": "Photo-23.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":865,"y":131},{"x":1326,"y":438},{"x":978,"y":736},{"x":520,"y":336}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-24.jpeg",
     "filename": "Photo-24.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":518,"y":595},{"x":1262,"y":572},{"x":1198,"y":220},{"x":593,"y":242}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-25.jpeg",
     "filename": "Photo-25.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":651,"y":337},{"x":1292,"y":324},{"x":1376,"y":726},{"x":586,"y":741}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-26.jpeg",
     "filename": "Photo-26.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":969,"y":131},{"x":1303,"y":333},{"x":829,"y":747},{"x":496,"y":450}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-27.jpeg",
     "filename": "Photo-27.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":716,"y":174},{"x":1128,"y":168},{"x":1176,"y":664},{"x":632,"y":664}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-28.jpeg",
     "filename": "Photo-28.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":706,"y":117},{"x":1108,"y":105},{"x":1164,"y":559},{"x":641,"y":572}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-29.jpeg",
     "filename": "Photo-29.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":928,"y":148},{"x":1368,"y":493},{"x":983,"y":781},{"x":568,"y":342}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-30.jpeg",
     "filename": "Photo-30.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":687,"y":194},{"x":1277,"y":177},{"x":1352,"y":505},{"x":639,"y":525}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-31.jpeg",
     "filename": "Photo-31.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":713,"y":214},{"x":1142,"y":211},{"x":1202,"y":743},{"x":632,"y":746}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-32.jpeg",
     "filename": "Photo-32.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":783,"y":162},{"x":1333,"y":377},{"x":1116,"y":735},{"x":508,"y":441}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-33.jpeg",
     "filename": "Photo-33.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":651,"y":225},{"x":1258,"y":210},{"x":1321,"y":585},{"x":585,"y":592}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-34.jpeg",
     "filename": "Photo-34.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":723,"y":139},{"x":1132,"y":125},{"x":1212,"y":589},{"x":680,"y":607}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-35.jpeg",
     "filename": "Photo-35.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":877,"y":91},{"x":1349,"y":356},{"x":1055,"y":655},{"x":568,"y":304}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-36.jpeg",
     "filename": "Photo-36.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":621,"y":182},{"x":1193,"y":132},{"x":1299,"y":439},{"x":610,"y":513}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-37.jpeg",
     "filename": "Photo-37.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":771,"y":123},{"x":1166,"y":102},{"x":1270,"y":552},{"x":757,"y":579}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-38.jpeg",
     "filename": "Photo-38.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":810,"y":85},{"x":1318,"y":296},{"x":1084,"y":605},{"x":537,"y":322}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-39.jpeg",
     "filename": "Photo-39.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":643,"y":166},{"x":1227,"y":160},{"x":1282,"y":479},{"x":581,"y":490}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-40.jpeg",
     "filename": "Photo-40.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":706,"y":185},{"x":1121,"y":177},{"x":1173,"y":681},{"x":624,"y":686}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-41.jpeg",
     "filename": "Photo-41.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":911,"y":120},{"x":1244,"y":300},{"x":798,"y":719},{"x":455,"y":442}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-42.jpeg",
     "filename": "Photo-42.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":523,"y":213},{"x":1109,"y":179},{"x":1183,"y":510},{"x":465,"y":558}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-43.jpeg",
     "filename": "Photo-43.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":1109,"y":139},{"x":703,"y":156},{"x":662,"y":644},{"x":1197,"y":613}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-44.jpeg",
     "filename": "Photo-44.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":990,"y":137},{"x":1253,"y":387},{"x":653,"y":706},{"x":448,"y":374}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-45.jpeg",
     "filename": "Photo-45.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":515,"y":220},{"x":1109,"y":196},{"x":1162,"y":536},{"x":441,"y":562}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-46.jpeg",
     "filename": "Photo-46.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":711,"y":146},{"x":1120,"y":134},{"x":1195,"y":601},{"x":662,"y":622}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-47.jpeg",
     "filename": "Photo-47.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":976,"y":120},{"x":1268,"y":347},{"x":713,"y":696},{"x":463,"y":384}] }
   },
   {
     "path": "/test-images/wood-bg/Photo-48.jpeg",
     "filename": "Photo-48.jpeg",
-    "category": "wood-bg"
+    "category": "wood-bg",
+    "groundTruth": { "corners": [{"x":561,"y":220},{"x":1157,"y":205},{"x":1212,"y":542},{"x":487,"y":562}] }
   }
 ];
 
