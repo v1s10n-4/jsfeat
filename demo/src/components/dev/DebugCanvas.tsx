@@ -167,6 +167,9 @@ export default function DebugCanvas({
   useEffect(() => { selectedCornerRef.current = selectedCorner; }, [selectedCorner]);
   useEffect(() => { annotationModeRef.current = annotationMode; }, [annotationMode]);
 
+  // Dragging state for annotation corners
+  const draggingCornerRef = useRef<number | null>(null);
+
   // Stable ref for onAnnotationUpdate to avoid stale closures
   const onAnnotationUpdateRef = useRef(onAnnotationUpdate);
   useEffect(() => { onAnnotationUpdateRef.current = onAnnotationUpdate; }, [onAnnotationUpdate]);
@@ -387,27 +390,96 @@ export default function DebugCanvas({
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Coordinate picker — click on the base canvas in static-image mode
+  // Mouse coordinate helper — converts mouse event to original image space
   // ---------------------------------------------------------------------------
-  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+  function mouseToOriginal(e: React.MouseEvent<HTMLCanvasElement>): { origX: number; origY: number; s: number } | null {
     const canvas = baseCanvasRef.current;
-    if (!canvas || isWebcam) return;
+    if (!canvas || isWebcam) return null;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const x = Math.round((e.clientX - rect.left) * scaleX);
     const y = Math.round((e.clientY - rect.top) * scaleY);
-    // Convert to original image coordinates (undo scale)
     const s = scale ?? 1;
-    const origX = Math.round(x / s);
-    const origY = Math.round(y / s);
+    return { origX: Math.round(x / s), origY: Math.round(y / s), s };
+  }
+
+  function findNearCorner(origX: number, origY: number, s: number): number | null {
+    const corners = annotCornersRef.current;
+    if (corners.length < 4) return null;
+    const THRESHOLD = 30;
+    let nearIdx: number | null = null;
+    let nearDist = Infinity;
+    for (let i = 0; i < 4; i++) {
+      const dx = corners[i].x - origX;
+      const dy = corners[i].y - origY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < THRESHOLD / s && dist < nearDist) {
+        nearIdx = i;
+        nearDist = dist;
+      }
+    }
+    return nearIdx;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mouse handlers — click for picker/placement, drag for annotation corners
+  // ---------------------------------------------------------------------------
+  function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    const pos = mouseToOriginal(e);
+    if (!pos) return;
+
+    if (annotationMode && annotCornersRef.current.length === 4) {
+      const near = findNearCorner(pos.origX, pos.origY, pos.s);
+      if (near !== null) {
+        draggingCornerRef.current = near;
+        setSelectedCorner(near);
+        e.preventDefault();
+        return;
+      }
+    }
+  }
+
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (draggingCornerRef.current === null) return;
+    const pos = mouseToOriginal(e);
+    if (!pos) return;
+
+    const corners = [...annotCornersRef.current];
+    const idx = draggingCornerRef.current;
+    corners[idx] = { x: pos.origX, y: pos.origY };
+    setAnnotCorners(corners);
+
+    // Redraw overlays immediately for smooth feedback
+    const canvas = baseCanvasRef.current;
+    if (canvas) drawOverlays(canvas.width, canvas.height);
+  }
+
+  function handleMouseUp(_e: React.MouseEvent<HTMLCanvasElement>) {
+    if (draggingCornerRef.current !== null) {
+      draggingCornerRef.current = null;
+      setSelectedCorner(null);
+      // Emit final position
+      if (annotCornersRef.current.length === 4) {
+        onAnnotationUpdateRef.current?.(annotCornersRef.current as CornerTuple);
+      }
+      return;
+    }
+  }
+
+  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    // Skip if we just finished a drag
+    if (draggingCornerRef.current !== null) return;
+
+    const pos = mouseToOriginal(e);
+    if (!pos) return;
 
     if (annotationMode) {
-      handleAnnotationClick(origX, origY, s);
+      handleAnnotationClick(pos.origX, pos.origY, pos.s);
       return;
     }
 
-    setClickedCoord({ x: origX, y: origY });
+    setClickedCoord({ x: pos.origX, y: pos.origY });
   }
 
   // ---------------------------------------------------------------------------
@@ -682,8 +754,11 @@ export default function DebugCanvas({
         <canvas
           ref={baseCanvasRef}
           className="block w-full h-full object-contain"
-          style={!isWebcam ? { cursor: 'crosshair' } : undefined}
+          style={!isWebcam ? { cursor: annotationMode ? 'grab' : 'crosshair' } : undefined}
           onClick={handleCanvasClick}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
         />
         {/* Overlay canvas: debug colors drawn here, positioned on top */}
         <canvas
