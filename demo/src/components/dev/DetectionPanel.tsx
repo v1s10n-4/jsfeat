@@ -3,6 +3,7 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import type { DetectionMetrics } from './DebugCanvas';
 
 export const DEFAULT_PARAMS: Record<string, number> = {
   blurKernel: 9,
@@ -10,16 +11,6 @@ export const DEFAULT_PARAMS: Record<string, number> = {
   cannyHigh: 60,
   minContourArea: 1000,
 };
-
-interface DetectionMetrics {
-  detected: boolean;
-  debugInfo: string;
-  rectFill: number;
-  aspect: number;
-  meanBrightness: number;
-  morphThreshold: number;
-  qualityScore: number;
-}
 
 interface DetectionPanelProps {
   params: Record<string, number>;
