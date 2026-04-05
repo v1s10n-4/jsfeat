@@ -186,3 +186,36 @@ QUALITY of the approxPoly corners, not which path is used.
 - Improvements applied: side ratio 0.2, convex hull, Scharr gradient merge, temporal reset
 - The remaining 16 failures need fundamentally different detection approach
 
+
+## Training Game Summary
+- Started: 16/48 (33%)
+- Final: 32/48 (67%)
+- LIFE: 1/3 remaining
+- Total improvements: +16 passes from baseline
+
+### Improvements that worked:
+1. Side ratio threshold 0.5→0.2: +8 passes (perspective quads accepted)
+2. Convex hull before approxPoly: +4 passes (cleaner corners)
+3. Scharr gradient merge with Canny: +4 passes (stronger card border edges)
+
+### Improvements that caused regressions (-1 life each):
+1. 3% centroid shrink: -1 pass (uniform shrink hurts some images)
+2. Scharr threshold 30→50: -4 passes (removes useful edge info)
+
+### Improvements that had no effect:
+- Morph blur radius 4→3
+- Edge refinement scan range expansion
+- Corner-specific Canny scan
+- approxPoly epsilon 0.12→0.15
+- Morph threshold mean+5→mean+7
+
+### Test harness improvements:
+- Offscreen canvas for reliable batch processing
+- Temporal state reset between images
+- Direct ground truth comparison (bypass React state)
+
+### Remaining 16 failures: root causes
+- Morph blob merges with wood grain texture → oversized contour
+- convex hull + approxPoly still overshoots on complex backgrounds
+- Some images are marginal (pass individually but fail in batch due to canvas differences)
+
