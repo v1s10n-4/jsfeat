@@ -328,7 +328,7 @@ export default function DebugCanvas({
   const { display } = profiler;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2 h-full">
       {/* Overlay toggles */}
       <div className="flex items-center gap-6">
         <div className="flex items-center gap-2">
@@ -353,19 +353,17 @@ export default function DebugCanvas({
         </div>
       </div>
 
-      {/* Stacked canvases — constrained height to fit viewport */}
-      <div className="relative inline-block max-h-[60vh] overflow-hidden">
+      {/* Stacked canvases — scales to fit container */}
+      <div className="relative flex-1 min-h-0">
         {/* Base canvas: pipeline draws here */}
         <canvas
           ref={baseCanvasRef}
-          className="block max-w-full max-h-[60vh]"
-          style={{ display: 'block', objectFit: 'contain' }}
+          className="block w-full h-full object-contain"
         />
         {/* Overlay canvas: debug colors drawn here, positioned on top */}
         <canvas
           ref={overlayCanvasRef}
-          className="pointer-events-none absolute inset-0 max-w-full max-h-[60vh]"
-          style={{ position: 'absolute', top: 0, left: 0, objectFit: 'contain' }}
+          className="pointer-events-none absolute inset-0 w-full h-full object-contain"
         />
       </div>
 

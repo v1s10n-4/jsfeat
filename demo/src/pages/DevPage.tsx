@@ -178,7 +178,7 @@ export default function DevPage() {
   // Render
   // -------------------------------------------------------------------------
   return (
-    <div className="flex flex-col gap-4 p-4 min-h-0">
+    <div className="flex flex-col gap-3 p-4 h-[calc(100vh-48px)] overflow-hidden">
       {/* Hidden video element for webcam */}
       <video ref={videoRef} className="hidden" playsInline muted />
 
@@ -208,10 +208,10 @@ export default function DevPage() {
         )}
       </div>
 
-      {/* Main area: canvas left, sidebar right */}
-      <div className="flex gap-4 min-h-0">
-        {/* DebugCanvas — flex-[3] */}
-        <div className="flex-[3] min-w-0">
+      {/* Main area: canvas left, sidebar right — fills remaining height */}
+      <div className="flex gap-4 flex-1 min-h-0 overflow-hidden">
+        {/* DebugCanvas — flex-[3], constrained to available height */}
+        <div className="flex-[3] min-w-0 overflow-hidden">
           <DebugCanvas
             imageSrc={isWebcam ? null : selectedImage}
             videoRef={videoRef}
@@ -242,7 +242,8 @@ export default function DevPage() {
         </div>
       </div>
 
-      {/* Bottom: TestImageStrip */}
+      {/* Bottom: TestImageStrip — fixed height, no grow */}
+      <div className="flex-shrink-0">
       <TestImageStrip
         selectedImage={selectedImage}
         onSelectImage={handleSelectImage}
@@ -250,6 +251,7 @@ export default function DevPage() {
         onRunAll={handleRunAll}
         running={batchRunning}
       />
+      </div>
     </div>
   );
 }
