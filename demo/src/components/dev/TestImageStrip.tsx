@@ -87,6 +87,7 @@ export default function TestImageStrip({
                         onClick={() => onSelectImage(img.path)}
                         title={img.filename}
                         style={{
+                          position: 'relative',
                           width: THUMB_W,
                           height: THUMB_H,
                           flexShrink: 0,
@@ -104,6 +105,23 @@ export default function TestImageStrip({
                         aria-pressed={isSelected}
                         aria-label={`${img.filename} — ${verdict}`}
                       >
+                        <div
+                          style={{
+                            position: 'absolute',
+                            top: 1,
+                            left: 1,
+                            fontSize: 8,
+                            lineHeight: '10px',
+                            padding: '0 2px',
+                            borderRadius: 2,
+                            background: img.category === 'paper-bg' ? '#3b82f6' : '#a855f7',
+                            color: 'white',
+                            fontWeight: 700,
+                            zIndex: 1,
+                          }}
+                        >
+                          {img.category === 'paper-bg' ? 'P' : 'W'}
+                        </div>
                         <img
                           src={img.path}
                           alt={img.filename}

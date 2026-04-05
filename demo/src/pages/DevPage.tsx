@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import DebugCanvas, { type DetectionMetrics } from '@/components/dev/DebugCanvas';
 import PipelineStages from '@/components/dev/PipelineStages';
 import DetectionPanel, { DEFAULT_PARAMS } from '@/components/dev/DetectionPanel';
@@ -144,6 +144,26 @@ export default function DevPage() {
   const handleSelectImage = useCallback((path: string) => {
     setSelectedImage(path);
   }, []);
+
+  // -------------------------------------------------------------------------
+  // Keyboard navigation: arrow keys cycle test images
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (isWebcam) return;
+      const idx = testImages.findIndex((img) => img.path === selectedImage);
+      if (idx === -1) return;
+      if (e.key === 'ArrowRight' && idx < testImages.length - 1) {
+        e.preventDefault();
+        setSelectedImage(testImages[idx + 1].path);
+      } else if (e.key === 'ArrowLeft' && idx > 0) {
+        e.preventDefault();
+        setSelectedImage(testImages[idx - 1].path);
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedImage, isWebcam]);
 
   // -------------------------------------------------------------------------
   // Run all — iterate test images, wait 300 ms each, record pass/fail
