@@ -2357,8 +2357,8 @@ const cardDetectionDemo: DemoDefinition = {
                   const fitPerp = m * c1proj + b2;
                   const shift = fitPerp - c1perp;
                   if (Math.abs(shift) < 30) {
-                    if (useX) refined[si].y += shift * 0.5;
-                    else refined[si].x += shift * 0.5;
+                    if (useX) refined[si].y += shift * 0.7;
+                    else refined[si].x += shift * 0.7;
                   }
                   const c2proj = useX ? c2.x : c2.y;
                   const c2perp = useX ? c2.y : c2.x;
