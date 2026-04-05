@@ -67,7 +67,6 @@ export default function DevPage() {
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
   const [renderTick, setRenderTick] = useState(0);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(loadVerdicts);
-  const [notes, setNotes] = useState<string>(loadNotes);
   const [batchRunning, setBatchRunning] = useState(false);
   const [accuracyThreshold, setAccuracyThreshold] = useState(50); // pixels
   const [annotationMode, setAnnotationMode] = useState(false);
@@ -146,20 +145,6 @@ export default function DevPage() {
   const selectedVerdict: Verdict =
     selectedImage ? (verdicts[selectedImage] ?? 'untested') : 'untested';
 
-  const handleVerdictChange = useCallback(
-    (v: 'pass' | 'fail') => {
-      if (!selectedImage) return;
-      const next = { ...verdicts, [selectedImage]: v };
-      setVerdicts(next);
-      saveVerdicts(next);
-    },
-    [selectedImage, verdicts],
-  );
-
-  const handleNotesChange = useCallback((n: string) => {
-    setNotes(n);
-    saveNotes(n);
-  }, []);
 
   // -------------------------------------------------------------------------
   // Annotation update
@@ -374,9 +359,19 @@ export default function DevPage() {
             onResetParams={handleResetParams}
             metrics={metrics}
             verdict={selectedVerdict}
-            onVerdictChange={handleVerdictChange}
-            notes={notes}
-            onNotesChange={handleNotesChange}
+            onRetest={() => {
+              if (!selectedImage) return;
+              const m = latestMetricsRef.current;
+              const gt = currentGroundTruthRef.current;
+              if (!gt || !m?.detected || !m.accuracy) {
+                const next = { ...verdicts, [selectedImage]: 'fail' as const };
+                setVerdicts(next); saveVerdicts(next);
+              } else {
+                const v = m.accuracy.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+                const next = { ...verdicts, [selectedImage]: v as 'pass' | 'fail' };
+                setVerdicts(next); saveVerdicts(next);
+              }
+            }}
           />
         </div>
       </div>

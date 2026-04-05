@@ -2,7 +2,6 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import type { DetectionMetrics } from './DebugCanvas';
 
 export const DEFAULT_PARAMS: Record<string, number> = {
@@ -18,9 +17,7 @@ interface DetectionPanelProps {
   onResetParams: () => void;
   metrics: DetectionMetrics | null;
   verdict: 'pass' | 'fail' | 'untested';
-  onVerdictChange: (v: 'pass' | 'fail') => void;
-  notes: string;
-  onNotesChange: (n: string) => void;
+  onRetest: () => void;
 }
 
 const SLIDERS = [
@@ -36,9 +33,7 @@ export default function DetectionPanel({
   onResetParams,
   metrics,
   verdict,
-  onVerdictChange,
-  notes,
-  onNotesChange,
+  onRetest,
 }: DetectionPanelProps) {
   return (
     <div className="space-y-4">
@@ -81,11 +76,24 @@ export default function DetectionPanel({
         </h3>
         {metrics ? (
           <div className="space-y-1.5">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] text-muted-foreground">Status</span>
               <Badge variant={metrics.detected ? 'default' : 'destructive'}>
                 {metrics.detected ? 'Detected' : 'Not Detected'}
               </Badge>
+              <Badge
+                variant="outline"
+                className={
+                  verdict === 'pass' ? 'border-green-500 text-green-400' :
+                  verdict === 'fail' ? 'border-red-500 text-red-400' :
+                  'border-muted text-muted-foreground'
+                }
+              >
+                {verdict === 'pass' ? 'PASS' : verdict === 'fail' ? 'FAIL' : 'UNTESTED'}
+              </Badge>
+              <Button variant="outline" size="xs" onClick={onRetest} className="h-5 text-[9px] px-1.5 ml-auto">
+                Retest
+              </Button>
             </div>
             <div className="font-mono text-[10px] text-muted-foreground break-all leading-relaxed">
               {metrics.debugInfo}
@@ -121,36 +129,6 @@ export default function DetectionPanel({
         )}
       </div>
 
-      {/* Verdict */}
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          Verdict
-        </h3>
-        <div className="flex gap-2">
-          <Button
-            size="xs"
-            variant={verdict === 'pass' ? 'default' : 'outline'}
-            onClick={() => onVerdictChange('pass')}
-            className="flex-1"
-          >
-            Pass
-          </Button>
-          <Button
-            size="xs"
-            variant={verdict === 'fail' ? 'destructive' : 'outline'}
-            onClick={() => onVerdictChange('fail')}
-            className="flex-1"
-          >
-            Fail
-          </Button>
-        </div>
-        <Input
-          placeholder="Notes…"
-          value={notes}
-          onChange={(e) => onNotesChange(e.target.value)}
-          className="h-6 text-[11px] font-mono"
-        />
-      </div>
     </div>
   );
 }
