@@ -168,6 +168,11 @@ export default function DevPage() {
     setBatchRunning(false);
   }, [batchRunning, verdicts]);
 
+  // -------------------------------------------------------------------------
+  // Derived canvas dimensions (used for PipelineStages)
+  // -------------------------------------------------------------------------
+  const canvasWidth = 640;
+  const canvasHeight = 480;
 
   // -------------------------------------------------------------------------
   // Render
@@ -219,7 +224,11 @@ export default function DevPage() {
 
         {/* Sidebar — flex-[2], no scroll */}
         <div className="flex-[2] min-w-0 flex flex-col gap-3 overflow-hidden">
-          <PipelineStages renderTick={renderTick} />
+          <PipelineStages
+            width={canvasWidth}
+            height={canvasHeight}
+            renderTick={renderTick}
+          />
           <DetectionPanel
             params={params}
             onParamChange={handleParamChange}

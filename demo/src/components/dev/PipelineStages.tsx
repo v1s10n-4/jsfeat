@@ -9,20 +9,17 @@ const STAGES = [
 ] as const;
 
 interface PipelineStagesProps {
+  width: number;
+  height: number;
   renderTick: number;
 }
 
-export default function PipelineStages({ renderTick }: PipelineStagesProps) {
+export default function PipelineStages({ width, height, renderTick }: PipelineStagesProps) {
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
 
   useEffect(() => {
     const bufs = getCardDebugBuffers();
     if (!bufs.gray) return;
-
-    // Read actual buffer dimensions from the Matrix objects
-    const width = bufs.gray.cols;
-    const height = bufs.gray.rows;
-    if (!width || !height) return;
 
     const thumbW = 160;
     const thumbH = Math.round(thumbW * height / width) || 90;
