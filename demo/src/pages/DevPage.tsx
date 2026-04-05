@@ -5,7 +5,7 @@ import DetectionPanel, { DEFAULT_PARAMS } from '@/components/dev/DetectionPanel'
 import TestImageStrip, { type Verdict } from '@/components/dev/TestImageStrip';
 import { testImages, computeAccuracy } from '@/lib/test-manifest';
 import type { GroundTruth } from '@/lib/test-manifest';
-import { cardDetectionDemo } from '@/lib/demos';
+import { cardDetectionDemo, getCardDebugBuffers, resetCardTemporalState } from '@/lib/demos';
 import { useWebcam } from '@/hooks/useWebcam';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -224,28 +224,58 @@ export default function DevPage() {
     setBatchRunning(true);
 
     const nextVerdicts = { ...verdicts };
+    // Create offscreen canvas for direct processing (bypasses React rendering)
+    const offCanvas = document.createElement('canvas');
+    const offCtx = offCanvas.getContext('2d', { willReadFrequently: true })!;
+    const dummyVideo = document.createElement('video');
+    const profilerStub = { start: () => {}, end: () => {}, frameStart: () => {}, frameEnd: () => {} };
 
     for (const img of testImages) {
-      setSelectedImage(img.path);
-      await waitForProcessing();
-
-      const m = latestMetricsRef.current;
       if (!img.groundTruth) {
-        // No ground truth — can't evaluate
         nextVerdicts[img.path] = 'untested';
-      } else if (!m?.detected || !m.accuracy) {
-        // Not detected or no accuracy computed
+        continue;
+      }
+
+      // Load image directly
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = reject;
+        el.src = img.path;
+      });
+
+      const s = scale;
+      const cw = Math.round(image.naturalWidth * s);
+      const ch = Math.round(image.naturalHeight * s);
+      offCanvas.width = cw;
+      offCanvas.height = ch;
+
+      // Reset state, setup, draw, process
+      resetCardTemporalState();
+      cardDetectionDemo.setup(offCanvas, dummyVideo, params);
+      offCtx.drawImage(image, 0, 0, cw, ch);
+      cardDetectionDemo.process(offCtx, dummyVideo, cw, ch, profilerStub as any);
+
+      // Read results directly from buffers
+      const bufs = getCardDebugBuffers();
+      const corners = bufs.smoothedCorners;
+
+      if (!corners || corners.length < 4) {
         nextVerdicts[img.path] = 'fail';
       } else {
-        // Pass if mean corner distance is within threshold
-        nextVerdicts[img.path] = m.accuracy.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+        const acc = computeAccuracy(corners, img.groundTruth, s);
+        nextVerdicts[img.path] = acc.meanDist <= accuracyThreshold ? 'pass' : 'fail';
       }
+
+      // Update display to show progress
+      setSelectedImage(img.path);
     }
 
+    cardDetectionDemo.cleanup();
     setVerdicts(nextVerdicts);
     saveVerdicts(nextVerdicts);
     setBatchRunning(false);
-  }, [batchRunning, verdicts, accuracyThreshold]);
+  }, [batchRunning, verdicts, accuracyThreshold, scale, params]);
 
   // -------------------------------------------------------------------------
   // Derived canvas dimensions (used for PipelineStages)

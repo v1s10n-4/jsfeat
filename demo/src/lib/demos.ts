@@ -2540,6 +2540,14 @@ const cardDetectionDemo: DemoDefinition = {
 };
 
 /** Expose card detection internal buffers for the debug workbench. */
+/** Reset temporal state (smoothed corners, grace period, threshold) between images. */
+export function resetCardTemporalState() {
+  _cardSmoothedCorners = null;
+  _cardGraceFrames = 0;
+  _cardPrevThreshold = 0;
+  _cardQualityHistory.length = 0;
+}
+
 export function getCardDebugBuffers() {
   return {
     gray: _cardGray,

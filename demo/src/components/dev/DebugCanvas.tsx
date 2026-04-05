@@ -7,7 +7,7 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { cardDetectionDemo, getCardDebugBuffers, setCardPipelineOverlays } from '@/lib/demos';
+import { cardDetectionDemo, getCardDebugBuffers, setCardPipelineOverlays, resetCardTemporalState } from '@/lib/demos';
 import { useProfiler } from '@/hooks/useProfiler';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -277,6 +277,7 @@ export default function DebugCanvas({
       }
       const dummy = dummyVideoRef.current;
 
+      resetCardTemporalState(); // Clear smoothed corners, grace period from previous image
       cardDetectionDemo.setup(canvas, dummy, params);
       setupDoneRef.current = true;
 

@@ -171,3 +171,18 @@ Let me check: how many of the 16 failures use buildCardCorners vs approxPoly cor
 The debug info shows pts=4 for all — so they ALL use approxPoly. The issue is the 
 QUALITY of the approxPoly corners, not which path is used.
 
+
+## [RUN_10_RESULTS]
+- **32 pass / 16 fail** (50px threshold) — confirmed with direct offscreen processing
+- N=10, LIFE=1/3
+- The 16 failures are genuine detection issues, not test harness timing bugs
+- Individual Retest showing PASS was misleading (cached temporal state from previous image)
+- Direct offscreen canvas processing confirms the same 32/16 result consistently
+- Fixed Run All to use offscreen canvas for reliable, deterministic results
+
+### Current state
+- Score: 32/48 (67%) at 50px threshold
+- LIFE: 1/3
+- Improvements applied: side ratio 0.2, convex hull, Scharr gradient merge, temporal reset
+- The remaining 16 failures need fundamentally different detection approach
+
