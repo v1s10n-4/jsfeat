@@ -2317,7 +2317,64 @@ const cardDetectionDemo: DemoDefinition = {
             sides.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
           }
           const maxS = Math.max(...sides), minS = Math.min(...sides);
-          cardCorners = (minS > maxS * 0.2) ? sq : buildCardCorners(br);
+          if (minS <= maxS * 0.2) {
+            cardCorners = buildCardCorners(br);
+          } else if (hullPts.length >= 8) {
+            // Line fitting: fit lines to hull segments between corners, intersect for precision
+            const refined = sq.map(p => ({ ...p }));
+            for (let si = 0; si < 4; si++) {
+              const c1 = sq[si], c2 = sq[(si + 1) % 4];
+              // Collect hull points near this edge
+              const ex = c2.x - c1.x, ey = c2.y - c1.y;
+              const eLen = Math.sqrt(ex * ex + ey * ey) || 1;
+              const enx = ex / eLen, eny = ey / eLen;
+              const pts2: { x: number; y: number }[] = [];
+              for (const hp of hullPts) {
+                const dx = hp.x - c1.x, dy = hp.y - c1.y;
+                const proj = dx * enx + dy * eny;
+                const perp = Math.abs(dx * (-eny) + dy * enx);
+                if (proj > eLen * 0.1 && proj < eLen * 0.9 && perp < eLen * 0.3) {
+                  pts2.push(hp);
+                }
+              }
+              if (pts2.length >= 3) {
+                // Least squares line: y = mx + b (or x = my + b for vertical)
+                const useX = Math.abs(ex) > Math.abs(ey);
+                let sumA = 0, sumB = 0, sumAB = 0, sumA2 = 0;
+                for (const p of pts2) {
+                  const a = useX ? p.x : p.y;
+                  const b2 = useX ? p.y : p.x;
+                  sumA += a; sumB += b2; sumAB += a * b2; sumA2 += a * a;
+                }
+                const n = pts2.length;
+                const det = n * sumA2 - sumA * sumA;
+                if (Math.abs(det) > 1e-6) {
+                  const m = (n * sumAB - sumA * sumB) / det;
+                  const b2 = (sumB - m * sumA) / n;
+                  // Shift corner along the edge normal by the line offset at that position
+                  const c1proj = useX ? c1.x : c1.y;
+                  const c1perp = useX ? c1.y : c1.x;
+                  const fitPerp = m * c1proj + b2;
+                  const shift = fitPerp - c1perp;
+                  if (Math.abs(shift) < 30) {
+                    if (useX) refined[si].y += shift * 0.5;
+                    else refined[si].x += shift * 0.5;
+                  }
+                  const c2proj = useX ? c2.x : c2.y;
+                  const c2perp = useX ? c2.y : c2.x;
+                  const fitPerp2 = m * c2proj + b2;
+                  const shift2 = fitPerp2 - c2perp;
+                  if (Math.abs(shift2) < 30) {
+                    if (useX) refined[(si + 1) % 4].y += shift2 * 0.5;
+                    else refined[(si + 1) % 4].x += shift2 * 0.5;
+                  }
+                }
+              }
+            }
+            cardCorners = refined;
+          } else {
+            cardCorners = sq;
+          }
         } else {
           cardCorners = buildCardCorners(br);
         }
