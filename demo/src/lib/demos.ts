@@ -2002,6 +2002,27 @@ function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[
   return result;
 }
 
+/** Build axis-aligned card corners from a bounding rect, enforcing 5:7 (w:h) ratio. */
+function buildCardCorners(br: { x: number; y: number; width: number; height: number }) {
+  const cx = br.x + br.width / 2;
+  const cy = br.y + br.height / 2;
+  const isLandscape = br.width > br.height;
+  let cw: number, ch: number;
+  if (isLandscape) {
+    cw = br.width; ch = cw * (5 / 7);
+    if (ch < br.height) { ch = br.height; cw = ch * (7 / 5); }
+  } else {
+    ch = br.height; cw = ch * (5 / 7);
+    if (cw < br.width) { cw = br.width; ch = cw * (7 / 5); }
+  }
+  return sortCorners([
+    { x: cx - cw / 2, y: cy - ch / 2 },
+    { x: cx + cw / 2, y: cy - ch / 2 },
+    { x: cx + cw / 2, y: cy + ch / 2 },
+    { x: cx - cw / 2, y: cy + ch / 2 },
+  ]);
+}
+
 /**
  * Compute 3x3 perspective transform from 4 source points to 4 destination points.
  * Solves the 8-parameter homography using simple Gaussian elimination.
@@ -2068,13 +2089,13 @@ const cardDetectionDemo: DemoDefinition = {
   description: 'Detects rectangular cards via edge detection and perspective-corrects them.',
   controls: [
     { type: 'slider', key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 21, step: 2, defaultNum: 9 },
-    { type: 'slider', key: 'cannyLow', label: 'Block Size', min: 3, max: 99, step: 2, defaultNum: 51 },
-    { type: 'slider', key: 'cannyHigh', label: 'Threshold', min: 10, max: 200, step: 5, defaultNum: 50 },
-    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 200, max: 50000, step: 100, defaultNum: 500 },
+    { type: 'slider', key: 'cannyLow', label: 'Canny Low', min: 5, max: 100, step: 5, defaultNum: 20 },
+    { type: 'slider', key: 'cannyHigh', label: 'Canny High', min: 20, max: 250, step: 5, defaultNum: 60 },
+    { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 200, max: 50000, step: 100, defaultNum: 1000 },
   ],
   setup(_canvas, _video, params) {
     _cardParams = {
-      blurKernel: 9, cannyLow: 51, cannyHigh: 50, minContourArea: 500,
+      blurKernel: 9, cannyLow: 20, cannyHigh: 60, minContourArea: 1000,
       ...params,
     };
   },
@@ -2094,30 +2115,56 @@ const cardDetectionDemo: DemoDefinition = {
     profiler.end('grayscale');
 
     profiler.start('blur');
-    let ks = _cardParams.blurKernel ?? 5;
+    let ks = _cardParams.blurKernel ?? 9;
     if (ks % 2 === 0) ks += 1;
     gaussianBlur(_cardGray, _cardBlurred!, ks, 0);
     profiler.end('blur');
 
-    // Use adaptive thresholding to create a binary mask
-    // Card = dark object on light desk → foreground pixels are below local mean
+    // Canny edge detection → morphological closing via box blur
+    // Strategy: cards have HIGH edge density (borders, art, text), desk has ZERO.
+    // Box-blurring the edge map averages edge density; thresholding yields solid card blob.
     profiler.start('canny');
-    const blockSz = Math.max(3, (_cardParams.cannyLow ?? 50) | 1); // reuse cannyLow as block size (must be odd)
-    const threshConst = _cardParams.cannyHigh ?? 150; // reuse cannyHigh as threshold constant
-    // Invert: we want card (darker) as foreground (255)
-    // adaptiveThreshold sets pixels > (mean - constant) to maxValue
-    // For dark-on-light: we want pixels BELOW mean, so use negative constant approach
-    // Actually: set dst[i] = (src[i] > mean[i] - constant) ? 255 : 0
-    // We want dark pixels as foreground: invert the result
-    adaptiveThreshold(_cardBlurred!, _cardEdges!, 255, 0, blockSz, threshConst / 10);
-    // Invert: swap foreground/background so card is white
-    const ed = _cardEdges!.data;
-    for (let ei = 0; ei < w * h; ei++) ed[ei] = ed[ei] ? 0 : 255;
+    const cannyLo = _cardParams.cannyLow ?? 20;
+    const cannyHi = _cardParams.cannyHigh ?? 60;
+    cannyEdges(_cardBlurred!, _cardEdges!, cannyLo, cannyHi);
     profiler.end('canny');
 
+    profiler.start('morph');
+    // Save original Canny edges for later corner refinement
+    _cardGray!.data.set(_cardEdges!.data);
+    // Reuse _cardBlurred as temp (no longer needed after Canny)
+    boxBlurGray(_cardEdges!, _cardBlurred!, 3);
+    const ed = _cardEdges!.data;
+    const bd = _cardBlurred!.data;
+    for (let i = 0; i < w * h; i++) {
+      ed[i] = bd[i] > 10 ? 255 : 0;
+    }
+    profiler.end('morph');
+
+    // Debug: pipeline output thumbnail (top-left)
+    {
+      const ds2 = 4, dw2 = (w / ds2) | 0, dh2 = (h / ds2) | 0;
+      const di2 = ctx.createImageData(dw2, dh2);
+      const dd2 = di2.data;
+      for (let dy2 = 0; dy2 < dh2; dy2++) {
+        for (let dx2 = 0; dx2 < dw2; dx2++) {
+          const si2 = (dy2 * ds2) * w + (dx2 * ds2);
+          const oi2 = (dy2 * dw2 + dx2) * 4;
+          const v2 = ed[si2];
+          dd2[oi2] = 0; dd2[oi2 + 1] = v2 ? 180 : 20; dd2[oi2 + 2] = 0; dd2[oi2 + 3] = 200;
+        }
+      }
+      ctx.putImageData(di2, 4, 4);
+      ctx.strokeStyle = '#ff0'; ctx.lineWidth = 1;
+      ctx.strokeRect(3, 3, dw2 + 2, dh2 + 2);
+      ctx.fillStyle = '#ff0'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
+      ctx.fillText('pipeline', 6, dh2 + 16);
+    }
+
+    // Find contours and pick the best card-shaped one
     profiler.start('contour');
     _cardDebugInfo = '';
-    const minArea = _cardParams.minContourArea ?? 500;
+    const minArea = _cardParams.minContourArea ?? 1000;
 
     let detected = false;
     let cardCorners: { x: number; y: number }[] = [];
@@ -2126,19 +2173,44 @@ const cardDetectionDemo: DemoDefinition = {
 
     let bestScore = 0;
     for (const contour of contours) {
-      if (contour.area < minArea || contour.area > w * h * 0.5) continue;
+      if (contour.area < minArea || contour.area > w * h * 0.7) continue;
 
       const br = contour.boundingRect;
-      const aspect = Math.min(br.width, br.height) / Math.max(br.width, br.height);
-      if (aspect < 0.3 || aspect > 0.95) continue;
+      // Skip border-touching contours (desk shadows, frame edges)
+      if (br.x <= 3 || br.y <= 3 || br.x + br.width >= w - 3 || br.y + br.height >= h - 3) continue;
 
-      let poly = approxPoly(contour, contour.perimeter * 0.04);
-      if (poly.length > 6) poly = approxPoly(contour, contour.perimeter * 0.08);
+      const aspect = Math.min(br.width, br.height) / Math.max(br.width, br.height);
+      if (aspect < 0.35) continue;
+
+      // Try progressive simplification to get a 4-sided polygon
+      let poly = approxPoly(contour, contour.perimeter * 0.02);
+      for (let ep = 0.04; poly.length > 4 && ep <= 0.12; ep += 0.02) {
+        poly = approxPoly(contour, contour.perimeter * ep);
+      }
+      // If still 5 points, merge the two closest adjacent vertices
+      if (poly.length === 5) {
+        let minDist = Infinity, mergeIdx = 0;
+        for (let pi = 0; pi < 5; pi++) {
+          const ni = (pi + 1) % 5;
+          const ddx = poly[ni].x - poly[pi].x, ddy = poly[ni].y - poly[pi].y;
+          const d = ddx * ddx + ddy * ddy;
+          if (d < minDist) { minDist = d; mergeIdx = pi; }
+        }
+        const ni = (mergeIdx + 1) % 5;
+        const mid = { x: (poly[mergeIdx].x + poly[ni].x) / 2, y: (poly[mergeIdx].y + poly[ni].y) / 2 };
+        const newPoly = [];
+        for (let pi = 0; pi < 5; pi++) {
+          if (pi === mergeIdx) newPoly.push(mid);
+          else if (pi !== ni) newPoly.push(poly[pi]);
+        }
+        poly = newPoly;
+      }
       if (poly.length < 4) continue;
 
       const rectFill = contour.area / (br.width * br.height);
-      const aspectMatch = 1 - Math.abs(aspect - 0.72);
-      const score = contour.area * rectFill * (0.5 + aspectMatch);
+      const targetAspect = 5 / 7; // 0.714
+      const aspectMatch = 1 - Math.abs(aspect - targetAspect) * 2;
+      const score = contour.area * rectFill * Math.max(0.1, aspectMatch);
 
       if (score > bestScore) {
         bestScore = score;
@@ -2155,23 +2227,58 @@ const cardDetectionDemo: DemoDefinition = {
             sides.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
           }
           const maxS = Math.max(...sides), minS = Math.min(...sides);
-          cardCorners = (minS > maxS * 0.15) ? sq : sortCorners([
-            { x: br.x, y: br.y },
-            { x: br.x + br.width, y: br.y },
-            { x: br.x + br.width, y: br.y + br.height },
-            { x: br.x, y: br.y + br.height },
-          ]);
+          cardCorners = (minS > maxS * 0.2) ? sq : buildCardCorners(br);
         } else {
-          cardCorners = sortCorners([
-            { x: br.x, y: br.y },
-            { x: br.x + br.width, y: br.y },
-            { x: br.x + br.width, y: br.y + br.height },
-            { x: br.x, y: br.y + br.height },
-          ]);
+          cardCorners = buildCardCorners(br);
         }
       }
     }
     profiler.end('contour');
+
+    // Refine quad: for each edge, scan perpendicular to find actual Canny border
+    if (detected && cardCorners.length === 4) {
+      const cannyOrig = _cardGray!.data;
+      const shifts = Array.from({ length: 4 }, () => ({ x: 0, y: 0, n: 0 }));
+
+      for (let ei = 0; ei < 4; ei++) {
+        const p1 = cardCorners[ei], p2 = cardCorners[(ei + 1) % 4];
+        const edx = p2.x - p1.x, edy = p2.y - p1.y;
+        const elen = Math.sqrt(edx * edx + edy * edy) || 1;
+        // Inward normal for CW polygon (TL→TR→BR→BL)
+        const nx = -edy / elen, ny = edx / elen;
+
+        // Sample along edge, scan perpendicularly for nearest Canny edge
+        const offsets: number[] = [];
+        for (let si = 1; si <= 8; si++) {
+          const t = si / 10;
+          const sx = p1.x + edx * t, sy = p1.y + edy * t;
+          for (let sd = -3; sd <= 15; sd++) {
+            const px = Math.round(sx + nx * sd);
+            const py = Math.round(sy + ny * sd);
+            if (px >= 0 && py >= 0 && px < w && py < h && cannyOrig[py * w + px] > 0) {
+              offsets.push(sd);
+              break;
+            }
+          }
+        }
+        if (offsets.length >= 3) {
+          offsets.sort((a, b) => a - b);
+          const med = offsets[Math.floor(offsets.length / 2)];
+          // Accumulate shift for both endpoints of this edge
+          shifts[ei].x += nx * med; shifts[ei].y += ny * med; shifts[ei].n++;
+          shifts[(ei + 1) % 4].x += nx * med; shifts[(ei + 1) % 4].y += ny * med; shifts[(ei + 1) % 4].n++;
+        }
+      }
+      // Apply averaged shifts
+      for (let ci = 0; ci < 4; ci++) {
+        if (shifts[ci].n > 0) {
+          cardCorners[ci] = {
+            x: cardCorners[ci].x + shifts[ci].x / shifts[ci].n,
+            y: cardCorners[ci].y + shifts[ci].y / shifts[ci].n,
+          };
+        }
+      }
+    }
 
     // Apply temporal smoothing to reduce jitter
     if (detected && cardCorners.length === 4) {

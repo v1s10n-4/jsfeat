@@ -16,3 +16,13 @@
 2. Re-add quality/consistency chart
 3. Tune defaults using learnings from last game
 4. Use `adaptiveThreshold` as preprocessing option
+
+## LEVEL_2 Learnings
+- `findContours` on Canny edges traces individual edge segments, not card border — Canny produces thin lines, not filled regions
+- `adaptiveThreshold` segments the card as a filled blob BUT card internal structure (title bar, text area, art sections) creates internal light bands that split the card into multiple contours
+- `EXTERNAL` contour mode doesn't help because the card blob itself has internal gaps
+- Dilated Canny edges + findContours gives better framing (tight to card edges) but still fragmented
+- Multi-threshold Canny costs 3x processing but gives better coverage
+- Corner shrinking (inward by 10px) compensates for edge dilation
+- Border-touching filter eliminates desk shadow contours
+- The core tension: threshold for detection vs threshold for framing quality are different
