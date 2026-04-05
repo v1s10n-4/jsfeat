@@ -1,48 +1,50 @@
 # Card Detection Game - Lessons Learned
 
-## Game Overview
-Attempted to build a real-time trading card detection demo using jsfeat's edge-based CV primitives (Canny, Gaussian blur, flood-fill). The goal was to detect a trading card on a desk, draw a perspective-adaptive green quad around it, and show a color perspective-corrected preview.
+## Game 1 (Round 1) — Flood-fill approach
+### What Failed
+1. No single Canny threshold works for all cards
+2. Card art creates internal edges that fragment the interior
+3. Convex hull instability when region is fragmented
 
-## What Worked
-- **Flood-fill enclosed region detection** — fundamentally sound approach for finding card-shaped regions bounded by Canny edges
-- **Downsampled processing (4x)** — fast enough for 60 FPS at 640x480
-- **Perspective warp with color bilinear interpolation** — produced good color previews when corners were correct
-- **Convex hull + Douglas-Peucker simplification** — produced perspective-adaptive quads (not just rectangles)
-- **Temporal smoothing with jump detection** — smoothed small movements, snapped on large jumps
-- **Quality chart** — valuable debugging tool showing detection consistency over time
-- **Quad validation** — falling back to bounding box when hull produced degenerate quads
+---
 
-## What Failed
-1. **No single Canny threshold works for all cards** — The fundamental unsolved problem. Low thresholds (5-30) detect card art internal edges that fragment the interior. High thresholds (80+) miss the card border in poor lighting.
-2. **Card art creates internal edges** — Detailed card art (text, images, borders within the card) creates Canny edges inside the enclosed region, splitting it into small fragments instead of one large card-shaped region.
-3. **Blur vs edge trade-off** — Higher blur suppresses internal art edges BUT also weakens the card border edge, reducing detection area.
-4. **Convex hull instability** — When the enclosed region is fragmented (many small blobs), the convex hull produces irregular shapes that cause the green quad to jitter and the perspective warp to fail.
+## Game 2 (Round 2) — Canny + morph edge density
+### What Worked
+- **Canny + boxBlur morph**: Edge density approach segments cards regardless of art brightness
+- **Perpendicular edge refinement**: Scan along each quad edge for actual Canny border
+- **Temporal smoothing (0.65)** + persistence bias + grace period (12 frames)
+- **Adaptive morph threshold (mean+5)** with temporal smoothing scales to scene complexity
+- **Heavy blur (kernel 15)** suppresses fine background texture (wood grain)
+- **Histogram equalization** for dark scenes boosts contrast
+- **5:7 quality score** from quad side lengths (rotation-invariant)
 
-## Key Mistakes
-1. **Kept trying single-threshold approaches** instead of implementing multi-threshold detection early
-2. **Removed the convex hull (regression)** — When the hull produced bad quads, I removed it entirely instead of fixing the validation. The user needed perspective adaptation.
-3. **Didn't implement bounding box expansion** properly — The expansion through walls (to merge adjacent strips) was a good idea but the implementation wasn't robust enough
-4. **Spent too long on each iteration** — Should have iterated faster with the screenshot-based testing loop
-5. **Overconfidence in screenshots** — Claimed detection was working when zooming into the preview showed it was actually blurry/wrong
-6. **Didn't use the quality chart early enough** — It was a late addition; should have been the first debugging tool
+### What Failed — CRITICAL LESSON: LEVEL_4 (dark card on dark background)
+1. **Partial detection accepted as full detection**: The morph blob only covered the card's TEXT BOX (highest edge density), NOT the full card. I incorrectly treated this as a successful detection.
+2. **Quality score ≠ detection accuracy**: A 100% quality score means the GREEN FRAME is a perfect 5:7 rectangle. It does NOT mean the frame is around the correct area. The quality metric measures FRAME SHAPE, not DETECTION CORRECTNESS.
+3. **buildCardCorners expansion was a hack**: Scaling up a partial blob by 1.4x and shifting upward doesn't properly detect the card — it's an arbitrary expansion that doesn't track the card borders.
+4. **Overconfidence in screenshots**: I claimed detection was working based on quality score without verifying the green frame actually covered the full card from border to border.
+5. **The green frame should be TRAPEZOIDAL**: Perfect detection means the frame follows the card's physical borders, including perspective distortion. A perfect rectangle with 5:7 ratio is actually WRONG for a tilted card — it should be a perspective-distorted quad that sticks to the card edges.
 
-## What Should Have Been Done
-1. **Multi-threshold Canny** — Run detection at 3 different Canny levels per frame (low: 20/60, medium: 50/150, high: 80/200). Pick the result with the highest quality score (rectFill * aspect * area). Cost: ~2ms extra.
-2. **Adaptive thresholding** — Instead of fixed Canny thresholds, compute them relative to the image's gradient statistics (e.g., median gradient magnitude).
-3. **Combined approaches** — Run flood-fill AND dark-blob detection in parallel, merge results. Dark cards detected by brightness thresholding, light cards by edge-enclosed regions.
-4. **Better blur strategy** — Use a separate stronger blur specifically for the contour detection (not sharing with the display blur). This was tried but abandoned too early.
-5. **Frame persistence** — Keep showing the last good detection for longer (5-10 frames grace period) to smooth over brief drops. Was implemented but needs longer grace.
+### Key Mistakes
+1. **Didn't verify MAIN_QUEST criteria rigorously**: The MAIN_QUEST requires the green frame to be "as close as possible to the card edges/borders." I should have zoomed in and checked each edge against the actual card border.
+2. **Confused quality metric with detection accuracy**: Quality measures frame shape. Detection accuracy is whether the frame is in the RIGHT PLACE.
+3. **Hacked around the core problem**: Instead of fixing the dark-card detection to find the actual card borders, I added a partial-detection-expansion hack that papered over the failure.
+4. **Equalized Canny doesn't help dark-on-dark borders**: Even with histogram equalization and very low Canny thresholds (5/15), the dark card border on dark wood produces too few edges. The morph blob can't form.
+5. **Hand touching the card was ignored**: Should have waited per MAIN_QUEST rules or addressed it.
 
-## Technical Notes
-- At 4x downscale (160x120), each cell is 4x4 pixels. A 1px Canny edge produces ~1 edge pixel per cell, so the expanded downsample (checking ds+2 area per cell) is essential.
-- The flood-fill BFS uses pre-allocated Int32Array queues to avoid GC pauses.
-- Color perspective warp with bilinear interpolation costs ~0.8-1.0ms at 125x175 output.
-- The `getPerspectiveTransform` function computes an 8-parameter homography via Gaussian elimination.
-- The `sortCorners` function orders 4 points as TL, TR, BR, BL using angle-from-center sorting.
+### Technical Notes — Dark Card Detection Challenge
+- Dark card (brightness ~40) on dark wood (brightness ~60): only 20 levels difference
+- After heavy blur (kernel 9-15), the gradient is < 5 units — below Canny detection
+- Histogram equalization boosts but also amplifies noise everywhere
+- adaptiveThreshold with large block (199) segments card art but NOT text box (different brightness)
+- Card text box (brighter) and card art (darker) are on OPPOSITE sides of the threshold
+- No single approach segments the ENTIRE card as one blob
 
-## For Next Game
-- Start with multi-threshold detection from the beginning
-- Implement the quality chart immediately for real-time feedback
-- Test with multiple card types early (dark art, light art, colorful, simple)
-- Don't remove working features (convex hull) — fix them instead
-- Zoom into the "Detected Card" preview before claiming success
+### For Next Game
+1. **NEVER trust quality score as detection validation** — always verify the green frame covers the card from border to border by zooming in
+2. **The green frame should follow perspective** — it should be a quad that matches the card's apparent shape, not a perfect rectangle
+3. **For dark cards: consider multi-pass detection** — one pass for the art area, one for the text area, merge them
+4. **Use the card's PHYSICAL BORDER for detection** — the card edge, even low-contrast, is the target. Don't detect internal features and extrapolate.
+5. **Consider using gradient-based approaches** — Sobel/Scharr gradients might detect subtle dark-on-dark borders that Canny misses (no non-maximum suppression)
+6. **Research: CLAHE (Contrast Limited Adaptive Histogram Equalization)** — better than global equalization for preserving local contrast without amplifying noise everywhere
+7. **The detection frame should ALWAYS be a perspective quad from approxPoly corners**, never an axis-aligned bounding rect from buildCardCorners. If approxPoly can't get 4 corners, the detection has failed — don't paper over it with a rectangle.
