@@ -2,11 +2,12 @@
  * DebugCanvas — dev-only component for the Detection Debug Workbench (Task 4).
  *
  * Renders the card detection pipeline on a canvas and draws toggleable overlays
- * (Canny edges in red, morph blob in yellow) on a stacked overlay canvas.
+ * (Canny edges in red, morph blob in yellow, contour outlines in cyan) on a
+ * stacked overlay canvas.
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { cardDetectionDemo, getCardDebugBuffers } from '@/lib/demos';
+import { cardDetectionDemo, getCardDebugBuffers, setCardPipelineOverlays } from '@/lib/demos';
 import { useProfiler } from '@/hooks/useProfiler';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -23,6 +24,7 @@ export interface DetectionMetrics {
   meanBrightness: number;
   morphThreshold: number;
   qualityScore: number;
+  corners: { x: number; y: number }[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,6 +44,10 @@ interface DebugCanvasProps {
   params: Record<string, unknown>;
   /** Called each processed frame with updated metrics. */
   onMetricsUpdate?: (metrics: DetectionMetrics) => void;
+  /** Called when static image processing completes (for batch Run All). */
+  onProcessingComplete?: () => void;
+  /** Scale factor for test images (1 = original, 0.5 = half, etc.). */
+  scale?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +105,8 @@ export default function DebugCanvas({
   frozen,
   params,
   onMetricsUpdate,
+  onProcessingComplete,
+  scale,
 }: DebugCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -106,6 +114,8 @@ export default function DebugCanvas({
   // Overlay toggles
   const [showCanny, setShowCanny] = useState(true);
   const [showMorph, setShowMorph] = useState(true);
+  const [showContours, setShowContours] = useState(false);
+  const [showPipelineOverlays, setShowPipelineOverlays] = useState(true);
 
   // RAF handle for cleanup
   const rafRef = useRef<number>(0);
@@ -116,13 +126,69 @@ export default function DebugCanvas({
   // Track whether setup has been called for the current canvas/video pair
   const setupDoneRef = useRef(false);
 
+  // Keep a stable ref to the current imageSrc for re-processing
+  const imageSrcRef = useRef(imageSrc);
+  useEffect(() => { imageSrcRef.current = imageSrc; }, [imageSrc]);
+
   const profiler = useProfiler();
 
   // Expose refs via stable callbacks so the animation loop can read them
   const showCannyRef = useRef(showCanny);
   const showMorphRef = useRef(showMorph);
+  const showContoursRef = useRef(showContours);
   useEffect(() => { showCannyRef.current = showCanny; }, [showCanny]);
   useEffect(() => { showMorphRef.current = showMorph; }, [showMorph]);
+  useEffect(() => { showContoursRef.current = showContours; }, [showContours]);
+
+  // ---------------------------------------------------------------------------
+  // Pipeline overlay toggle side-effect
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    setCardPipelineOverlays(showPipelineOverlays);
+
+    // Re-run static image processing when the toggle changes
+    if (!isWebcam && imageSrcRef.current) {
+      const canvas = baseCanvasRef.current;
+      if (!canvas) return;
+
+      const img = new Image();
+      img.onload = () => {
+        const s = scale ?? 1;
+        const canvasW = Math.round(img.naturalWidth * s);
+        const canvasH = Math.round(img.naturalHeight * s);
+        canvas.width = canvasW;
+        canvas.height = canvasH;
+
+        const overlayCanvas = overlayCanvasRef.current;
+        if (overlayCanvas) {
+          overlayCanvas.width = canvasW;
+          overlayCanvas.height = canvasH;
+        }
+
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) return;
+
+        if (!dummyVideoRef.current) {
+          dummyVideoRef.current = document.createElement('video');
+        }
+        const dummy = dummyVideoRef.current;
+
+        cardDetectionDemo.setup(canvas, dummy, params);
+        setupDoneRef.current = true;
+
+        ctx.drawImage(img, 0, 0, canvasW, canvasH);
+
+        profiler.frameStart();
+        cardDetectionDemo.process(ctx, dummy, canvasW, canvasH, profiler);
+        profiler.frameEnd();
+
+        drawOverlays(canvasW, canvasH);
+        reportMetrics(canvasW * canvasH);
+      };
+      img.src = imageSrcRef.current;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPipelineOverlays]);
 
   // ---------------------------------------------------------------------------
   // Load static image → draw to base canvas and run once
@@ -135,13 +201,16 @@ export default function DebugCanvas({
 
     const img = new Image();
     img.onload = () => {
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+      const s = scale ?? 1;
+      const canvasW = Math.round(img.naturalWidth * s);
+      const canvasH = Math.round(img.naturalHeight * s);
+      canvas.width = canvasW;
+      canvas.height = canvasH;
 
       const overlayCanvas = overlayCanvasRef.current;
       if (overlayCanvas) {
-        overlayCanvas.width = img.naturalWidth;
-        overlayCanvas.height = img.naturalHeight;
+        overlayCanvas.width = canvasW;
+        overlayCanvas.height = canvasH;
       }
 
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -156,18 +225,19 @@ export default function DebugCanvas({
       cardDetectionDemo.setup(canvas, dummy, params);
       setupDoneRef.current = true;
 
-      ctx.drawImage(img, 0, 0);
+      ctx.drawImage(img, 0, 0, canvasW, canvasH);
 
       profiler.frameStart();
-      cardDetectionDemo.process(ctx, dummy, img.naturalWidth, img.naturalHeight, profiler);
+      cardDetectionDemo.process(ctx, dummy, canvasW, canvasH, profiler);
       profiler.frameEnd();
 
-      drawOverlays(img.naturalWidth, img.naturalHeight);
-      reportMetrics(img.naturalWidth * img.naturalHeight);
+      drawOverlays(canvasW, canvasH);
+      reportMetrics(canvasW * canvasH);
+      onProcessingComplete?.();
     };
     img.src = imageSrc;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageSrc, isWebcam]);
+  }, [imageSrc, isWebcam, scale]);
 
   // ---------------------------------------------------------------------------
   // Notify demo of param changes
@@ -296,6 +366,22 @@ export default function DebugCanvas({
     }
 
     octx.putImageData(imgData, 0, 0);
+
+    // Contour outlines (cyan)
+    if (showContoursRef.current && bufs.contours) {
+      octx.strokeStyle = 'cyan';
+      octx.lineWidth = 1;
+      for (const contour of bufs.contours) {
+        if (contour.points.length < 3) continue;
+        octx.beginPath();
+        octx.moveTo(contour.points[0].x, contour.points[0].y);
+        for (let i = 1; i < contour.points.length; i++) {
+          octx.lineTo(contour.points[i].x, contour.points[i].y);
+        }
+        octx.closePath();
+        octx.stroke();
+      }
+    }
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -319,6 +405,7 @@ export default function DebugCanvas({
       qualityScore: bufs.qualityHistory?.length
         ? (bufs.qualityHistory[bufs.qualityHistory.length - 1] ?? 0)
         : 0,
+      corners: bufs.smoothedCorners ? [...bufs.smoothedCorners] : null,
     });
   }, [onMetricsUpdate]);
 
@@ -330,7 +417,7 @@ export default function DebugCanvas({
   return (
     <div className="flex flex-col gap-2 h-full">
       {/* Overlay toggles */}
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-6 flex-wrap">
         <div className="flex items-center gap-2">
           <Switch
             id="toggle-canny"
@@ -349,6 +436,26 @@ export default function DebugCanvas({
           />
           <Label htmlFor="toggle-morph" className="text-xs text-yellow-400">
             Morph blob
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="toggle-contours"
+            checked={showContours}
+            onCheckedChange={setShowContours}
+          />
+          <Label htmlFor="toggle-contours" className="text-xs text-cyan-400">
+            Contours
+          </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            id="toggle-pipeline-hud"
+            checked={showPipelineOverlays}
+            onCheckedChange={setShowPipelineOverlays}
+          />
+          <Label htmlFor="toggle-pipeline-hud" className="text-xs text-white">
+            Pipeline HUD
           </Label>
         </div>
       </div>
