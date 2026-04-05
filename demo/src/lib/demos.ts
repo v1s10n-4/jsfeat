@@ -1981,6 +1981,13 @@ const CARD_HISTORY_LEN = 120;
 const _cardQualityHistory: number[] = [];
 let _cardLastRectFill = 0;
 let _cardLastAspect = 0;
+let _cardShowPipelineOverlays = true;
+let _cardLastContours: { points: { x: number; y: number }[]; boundingRect: { x: number; y: number; width: number; height: number } }[] = [];
+
+/** Toggle the pipeline's built-in debug overlays (thumbnail, quality chart, status text). */
+export function setCardPipelineOverlays(show: boolean) {
+  _cardShowPipelineOverlays = show;
+}
 
 /** Sort 4 corners into top-left, top-right, bottom-right, bottom-left order. */
 function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[] {
@@ -2153,7 +2160,7 @@ const cardDetectionDemo: DemoDefinition = {
     profiler.end('morph');
 
     // Debug: pipeline output thumbnail (top-left)
-    {
+    if (_cardShowPipelineOverlays) {
       const ds2 = 4, dw2 = (w / ds2) | 0, dh2 = (h / ds2) | 0;
       const di2 = ctx.createImageData(dw2, dh2);
       const dd2 = di2.data;
@@ -2182,6 +2189,7 @@ const cardDetectionDemo: DemoDefinition = {
     let cardCorners: { x: number; y: number }[] = [];
 
     const contours = findContours(_cardEdges!);
+    _cardLastContours = contours;
 
     let bestScore = 0;
     for (const contour of contours) {
@@ -2420,50 +2428,52 @@ const cardDetectionDemo: DemoDefinition = {
       }
     }
 
-    // Status
-    ctx.fillStyle = detected ? '#0f0' : '#f66';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'left';
-    // Show debug info about best candidate
-    let debugInfo = '';
-    if (_cardDebugInfo) debugInfo = ` | ${_cardDebugInfo}`;
-    ctx.fillText(
-      (detected ? 'Card detected' : 'No card found') + debugInfo,
-      8, h - 8,
-    );
+    if (_cardShowPipelineOverlays) {
+      // Status
+      ctx.fillStyle = detected ? '#0f0' : '#f66';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'left';
+      // Show debug info about best candidate
+      let debugInfo = '';
+      if (_cardDebugInfo) debugInfo = ` | ${_cardDebugInfo}`;
+      ctx.fillText(
+        (detected ? 'Card detected' : 'No card found') + debugInfo,
+        8, h - 8,
+      );
 
-    // Quality = (1 - ratio deviation from 5:7) using actual quad side lengths
-    // 100% means detected quad has exactly 5:7 aspect ratio
-    let qScore = 0;
-    if (detected && cardCorners.length === 4) {
-      // Compute average width (top+bottom edges) and height (left+right edges)
-      const topLen = Math.sqrt((cardCorners[1].x - cardCorners[0].x) ** 2 + (cardCorners[1].y - cardCorners[0].y) ** 2);
-      const botLen = Math.sqrt((cardCorners[2].x - cardCorners[3].x) ** 2 + (cardCorners[2].y - cardCorners[3].y) ** 2);
-      const leftLen = Math.sqrt((cardCorners[3].x - cardCorners[0].x) ** 2 + (cardCorners[3].y - cardCorners[0].y) ** 2);
-      const rightLen = Math.sqrt((cardCorners[2].x - cardCorners[1].x) ** 2 + (cardCorners[2].y - cardCorners[1].y) ** 2);
-      const avgW = (topLen + botLen) / 2;
-      const avgH = (leftLen + rightLen) / 2;
-      const quadAspect = Math.min(avgW, avgH) / Math.max(avgW, avgH);
-      qScore = Math.max(0, 1 - Math.abs(quadAspect - 5 / 7) * 3);
+      // Quality = (1 - ratio deviation from 5:7) using actual quad side lengths
+      // 100% means detected quad has exactly 5:7 aspect ratio
+      let qScore = 0;
+      if (detected && cardCorners.length === 4) {
+        // Compute average width (top+bottom edges) and height (left+right edges)
+        const topLen = Math.sqrt((cardCorners[1].x - cardCorners[0].x) ** 2 + (cardCorners[1].y - cardCorners[0].y) ** 2);
+        const botLen = Math.sqrt((cardCorners[2].x - cardCorners[3].x) ** 2 + (cardCorners[2].y - cardCorners[3].y) ** 2);
+        const leftLen = Math.sqrt((cardCorners[3].x - cardCorners[0].x) ** 2 + (cardCorners[3].y - cardCorners[0].y) ** 2);
+        const rightLen = Math.sqrt((cardCorners[2].x - cardCorners[1].x) ** 2 + (cardCorners[2].y - cardCorners[1].y) ** 2);
+        const avgW = (topLen + botLen) / 2;
+        const avgH = (leftLen + rightLen) / 2;
+        const quadAspect = Math.min(avgW, avgH) / Math.max(avgW, avgH);
+        qScore = Math.max(0, 1 - Math.abs(quadAspect - 5 / 7) * 3);
+      }
+      _cardQualityHistory.push(qScore);
+      if (_cardQualityHistory.length > CARD_HISTORY_LEN) _cardQualityHistory.shift();
+      const chartW = Math.min(_cardQualityHistory.length, 120);
+      const chartH = 24;
+      const chartX = w - chartW - 8;
+      const chartY = 8;
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(chartX - 1, chartY - 1, chartW + 2, chartH + 12);
+      for (let ci = 0; ci < chartW; ci++) {
+        const val = _cardQualityHistory[_cardQualityHistory.length - chartW + ci];
+        const barH = val * chartH;
+        ctx.fillStyle = val > 0.35 ? '#0f0' : val > 0.1 ? '#ff0' : '#f00';
+        ctx.fillRect(chartX + ci, chartY + chartH - barH, 1, barH);
+      }
+      ctx.fillStyle = '#aaa';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`quality: ${(qScore * 100).toFixed(0)}%`, chartX, chartY + chartH + 9);
     }
-    _cardQualityHistory.push(qScore);
-    if (_cardQualityHistory.length > CARD_HISTORY_LEN) _cardQualityHistory.shift();
-    const chartW = Math.min(_cardQualityHistory.length, 120);
-    const chartH = 24;
-    const chartX = w - chartW - 8;
-    const chartY = 8;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(chartX - 1, chartY - 1, chartW + 2, chartH + 12);
-    for (let ci = 0; ci < chartW; ci++) {
-      const val = _cardQualityHistory[_cardQualityHistory.length - chartW + ci];
-      const barH = val * chartH;
-      ctx.fillStyle = val > 0.35 ? '#0f0' : val > 0.1 ? '#ff0' : '#f00';
-      ctx.fillRect(chartX + ci, chartY + chartH - barH, 1, barH);
-    }
-    ctx.fillStyle = '#aaa';
-    ctx.font = '8px monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`quality: ${(qScore * 100).toFixed(0)}%`, chartX, chartY + chartH + 9);
   },
   onParamChange(key, value) {
     _cardParams[key] = value;
@@ -2475,6 +2485,7 @@ const cardDetectionDemo: DemoDefinition = {
     _cardSmoothedCorners = null;
     _cardGraceFrames = 0;
     _cardPrevThreshold = 0;
+    _cardLastContours = [];
   },
 };
 
@@ -2492,6 +2503,7 @@ export function getCardDebugBuffers() {
     params: _cardParams,
     graceFrames: _cardGraceFrames,
     prevThreshold: _cardPrevThreshold,
+    contours: _cardLastContours,
   };
 }
 
