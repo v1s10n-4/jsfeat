@@ -2159,7 +2159,7 @@ const cardDetectionDemo: DemoDefinition = {
     }
 
     // Morph: box blur connects nearby edges into solid blobs.
-    boxBlurGray(_cardEdges!, _cardBlurred!, 4);
+    boxBlurGray(_cardEdges!, _cardBlurred!, 5);
     const bd = _cardBlurred!.data;
     let densitySum = 0;
     for (let i = 0; i < w * h; i++) densitySum += bd[i];
