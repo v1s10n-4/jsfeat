@@ -2153,7 +2153,7 @@ const cardDetectionDemo: DemoDefinition = {
     let densitySum = 0;
     for (let i = 0; i < w * h; i++) densitySum += bd[i];
     const meanDensity = densitySum / (w * h);
-    const rawThresh = Math.max(8, meanDensity + 5);
+    const rawThresh = Math.max(8, meanDensity + 7);
     // Smooth threshold across frames to prevent blob flickering
     _cardPrevThreshold = _cardPrevThreshold > 0 ? _cardPrevThreshold * 0.7 + rawThresh * 0.3 : rawThresh;
     for (let i = 0; i < w * h; i++) ed[i] = bd[i] > _cardPrevThreshold ? 255 : 0;
@@ -2244,7 +2244,7 @@ const cardDetectionDemo: DemoDefinition = {
       } : contour;
 
       let poly = approxPoly(hullContour, hullContour.perimeter * 0.02);
-      for (let ep = 0.04; poly.length > 4 && ep <= 0.12; ep += 0.02) {
+      for (let ep = 0.04; poly.length > 4 && ep <= 0.15; ep += 0.02) {
         poly = approxPoly(hullContour, hullContour.perimeter * ep);
       }
       // If still 5 points, merge the two closest adjacent vertices
@@ -2337,12 +2337,10 @@ const cardDetectionDemo: DemoDefinition = {
         if (offsets.length >= 3) {
           offsets.sort((a, b) => a - b);
           const med = offsets[Math.floor(offsets.length / 2)];
-          // Accumulate shift for both endpoints of this edge
           shifts[ei].x += nx * med; shifts[ei].y += ny * med; shifts[ei].n++;
           shifts[(ei + 1) % 4].x += nx * med; shifts[(ei + 1) % 4].y += ny * med; shifts[(ei + 1) % 4].n++;
         }
       }
-      // Apply averaged shifts
       for (let ci = 0; ci < 4; ci++) {
         if (shifts[ci].n > 0) {
           cardCorners[ci] = {

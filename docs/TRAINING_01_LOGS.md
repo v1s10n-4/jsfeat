@@ -60,3 +60,70 @@ The real fix: need to use the Canny edges at the card border for corner position
 - IMPROVEMENT confirmed: ratio of new passes to new fails is positive (+4, -0)
 - **COMMIT and GAIN 1 LIFE → LIFE=3/3 (capped at MAX)**
 
+
+## [RUN_5_RESULTS]
+- **28 pass / 20 fail** (50px threshold)
+- N=5, LIFE=3/3
+- Change: increased edge refinement scan samples (8→12) and range (-3..15 → -10..40)
+- No net change in pass/fail count. The wider scan helps some images but doesnt flip any.
+- Continue to step 5: need a fundamentally different approach for the remaining 20.
+
+### Failure analysis
+The remaining 20 failures fall into patterns:
+1. Morph blob merges with background edges (wood grain) → oversized contour
+2. Card detected but corners offset 50-150px from ground truth
+3. Wrong contour selected (background feature instead of card)
+
+The morph approach is reaching its limit. Need to research alternative detection strategies.
+
+
+## [RUN_5_RESULTS]
+- **27 pass / 21 fail** (50px threshold)
+- N=5, LIFE=2/3 (LOST 1 LIFE — regression from 28→27)
+- Change: added 3% centroid shrink before edge refinement
+- REGRESSION: one previously passing image now fails. The uniform shrink helps some but hurts others.
+- Reverted the change immediately.
+- Need to find a targeted fix that doesnt regress existing passes.
+
+
+## [RUN_6_RESULTS]
+- **28 pass / 20 fail** (50px threshold)
+- N=6, LIFE=2/3
+- Changes: extended approxPoly epsilon 0.12→0.15, raised morph threshold mean+5→mean+7
+- No difference from previous best (28 pass). No regression either.
+- The epsilon and threshold tweaks have no effect on the pass/fail boundary.
+- The 20 remaining failures need a fundamentally different approach to corner detection.
+
+
+### Deep analysis — why 20 images still fail
+
+The morph blob + convex hull + approxPoly approach has reached its ceiling at 28/48.
+The remaining 20 failures are images where the morph blob shape doesnt match the card well enough.
+
+Key realization: the morph blob is a REGION detector (finds where the card IS), but its SHAPE
+is not accurate enough for corner positions. The actual card BORDER is defined by the Canny edges,
+not the morph blob boundary.
+
+**New strategy: use approxPoly corners as INITIAL estimate, then refine EACH CORNER independently
+by scanning from the corner toward the card center, looking for a strong Canny edge intersection.**
+
+This is different from the current edge refinement which shifts entire edges.
+Corner-specific refinement can handle cases where one corner overshoots 100px while others are fine.
+
+
+## [RUN_7_RESULTS]
+- **28 pass / 20 fail** (50px threshold)
+- N=7, LIFE=2/3
+- Change: replaced edge-based refinement with corner-specific Canny scan (each corner scans toward center)
+- No net change. The corner refinement finds internal card edges (art, text) before reaching the card border.
+- The Canny edges INSIDE the card are hit before the actual card border edge.
+
+### Key insight
+The corner-to-center scan hits INTERNAL card edges first (art details, text boundaries). These are NOT
+the card border. The scan cant distinguish internal edges from the card border edge.
+
+The original edge-perpendicular scan was actually better for finding the card border because it samples
+along the edge (not toward center), and the median filters out internal edge hits.
+
+**Reverting to the original edge-perpendicular refinement.**
+
