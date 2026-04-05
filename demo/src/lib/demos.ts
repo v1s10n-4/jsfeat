@@ -1974,8 +1974,9 @@ let _cardEdges: Matrix | null = null;
 let _cardDebugInfo: string = '';
 // Temporal smoothing for stable bounding box
 let _cardSmoothedCorners: { x: number; y: number }[] | null = null;
-const SMOOTHING = 0.4; // 0 = no smoothing, 1 = freeze
+const SMOOTHING = 0.65; // 0 = no smoothing, 1 = freeze — higher = more stable
 let _cardGraceFrames = 0;
+let _cardPrevThreshold = 0; // smoothed adaptive threshold
 const CARD_HISTORY_LEN = 120;
 const _cardQualityHistory: number[] = [];
 let _cardLastRectFill = 0;
@@ -2002,7 +2003,7 @@ function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[
   return result;
 }
 
-/** Build axis-aligned card corners from a bounding rect, enforcing 5:7 (w:h) ratio. */
+/** Build card corners from a bounding rect, enforcing 5:7 (w:h) ratio. */
 function buildCardCorners(br: { x: number; y: number; width: number; height: number }) {
   const cx = br.x + br.width / 2;
   const cy = br.y + br.height / 2;
@@ -2117,28 +2118,34 @@ const cardDetectionDemo: DemoDefinition = {
     profiler.start('blur');
     let ks = _cardParams.blurKernel ?? 9;
     if (ks % 2 === 0) ks += 1;
-    gaussianBlur(_cardGray, _cardBlurred!, ks, 0);
+    // Use at least kernel 15 to suppress fine texture (wood grain, fabric, etc.)
+    const detKs = Math.max(ks, 15) | 1;
+    gaussianBlur(_cardGray, _cardBlurred!, detKs, 0);
     profiler.end('blur');
 
     // Canny edge detection → morphological closing via box blur
-    // Strategy: cards have HIGH edge density (borders, art, text), desk has ZERO.
-    // Box-blurring the edge map averages edge density; thresholding yields solid card blob.
     profiler.start('canny');
     const cannyLo = _cardParams.cannyLow ?? 20;
-    const cannyHi = _cardParams.cannyHigh ?? 60;
+    const cannyHi = Math.max((_cardParams.cannyHigh ?? 60), cannyLo + 10); // enforce high > low
     cannyEdges(_cardBlurred!, _cardEdges!, cannyLo, cannyHi);
     profiler.end('canny');
 
     profiler.start('morph');
     // Save original Canny edges for later corner refinement
     _cardGray!.data.set(_cardEdges!.data);
-    // Reuse _cardBlurred as temp (no longer needed after Canny)
-    boxBlurGray(_cardEdges!, _cardBlurred!, 3);
     const ed = _cardEdges!.data;
+
+    // Always morph: box blur connects nearby edges into solid blobs.
+    // Adaptive threshold scales with scene complexity.
+    boxBlurGray(_cardEdges!, _cardBlurred!, 4);
     const bd = _cardBlurred!.data;
-    for (let i = 0; i < w * h; i++) {
-      ed[i] = bd[i] > 10 ? 255 : 0;
-    }
+    let densitySum = 0;
+    for (let i = 0; i < w * h; i++) densitySum += bd[i];
+    const meanDensity = densitySum / (w * h);
+    const rawThresh = Math.max(8, meanDensity + 5);
+    // Smooth threshold across frames to prevent blob flickering
+    _cardPrevThreshold = _cardPrevThreshold > 0 ? _cardPrevThreshold * 0.7 + rawThresh * 0.3 : rawThresh;
+    for (let i = 0; i < w * h; i++) ed[i] = bd[i] > _cardPrevThreshold ? 255 : 0;
     profiler.end('morph');
 
     // Debug: pipeline output thumbnail (top-left)
@@ -2164,7 +2171,8 @@ const cardDetectionDemo: DemoDefinition = {
     // Find contours and pick the best card-shaped one
     profiler.start('contour');
     _cardDebugInfo = '';
-    const minArea = _cardParams.minContourArea ?? 1000;
+    // Min area: at least 3% of frame (card must be visible enough)
+    const minArea = Math.max(_cardParams.minContourArea ?? 1000, w * h * 0.03);
 
     let detected = false;
     let cardCorners: { x: number; y: number }[] = [];
@@ -2173,7 +2181,7 @@ const cardDetectionDemo: DemoDefinition = {
 
     let bestScore = 0;
     for (const contour of contours) {
-      if (contour.area < minArea || contour.area > w * h * 0.7) continue;
+      if (contour.area < minArea || contour.area > w * h * 0.4) continue;
 
       const br = contour.boundingRect;
       // Skip border-touching contours (desk shadows, frame edges)
@@ -2207,10 +2215,23 @@ const cardDetectionDemo: DemoDefinition = {
       }
       if (poly.length < 4) continue;
 
-      const rectFill = contour.area / (br.width * br.height);
       const targetAspect = 5 / 7; // 0.714
-      const aspectMatch = 1 - Math.abs(aspect - targetAspect) * 2;
-      const score = contour.area * rectFill * Math.max(0.1, aspectMatch);
+      const aspectMatch = 1 - Math.abs(aspect - targetAspect) * 3;
+      if (aspectMatch < 0) continue; // aspect ratio too far from 5:7
+
+      // Score: strongly prefer large filled contours with good 5:7 aspect
+      const rectFill = contour.area / (br.width * br.height);
+      const ptPenalty = poly.length === 4 ? 1 : 0.7;
+      // Persistence bias: if we had a previous detection, boost contours near it
+      let persistence = 1;
+      if (_cardSmoothedCorners) {
+        const prevCx = _cardSmoothedCorners.reduce((s, p) => s + p.x, 0) / 4;
+        const prevCy = _cardSmoothedCorners.reduce((s, p) => s + p.y, 0) / 4;
+        const curCx = br.x + br.width / 2, curCy = br.y + br.height / 2;
+        const dist = Math.sqrt((curCx - prevCx) ** 2 + (curCy - prevCy) ** 2);
+        if (dist < 100) persistence = 1.5; // boost nearby contours
+      }
+      const score = contour.area * Math.max(0.3, rectFill) * (0.3 + aspectMatch) * ptPenalty * persistence;
 
       if (score > bestScore) {
         bestScore = score;
@@ -2227,7 +2248,7 @@ const cardDetectionDemo: DemoDefinition = {
             sides.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
           }
           const maxS = Math.max(...sides), minS = Math.min(...sides);
-          cardCorners = (minS > maxS * 0.2) ? sq : buildCardCorners(br);
+          cardCorners = (minS > maxS * 0.5) ? sq : buildCardCorners(br);
         } else {
           cardCorners = buildCardCorners(br);
         }
@@ -2291,7 +2312,7 @@ const cardDetectionDemo: DemoDefinition = {
           const dy2 = cardCorners[i].y - _cardSmoothedCorners[i].y;
           maxJump = Math.max(maxJump, Math.sqrt(dx2 * dx2 + dy2 * dy2));
         }
-        if (maxJump > 50) {
+        if (maxJump > 80) {
           // Big jump — snap immediately
           _cardSmoothedCorners = cardCorners.map(p => ({ ...p }));
         } else {
@@ -2306,7 +2327,7 @@ const cardDetectionDemo: DemoDefinition = {
       }
     } else if (!detected && _cardSmoothedCorners) {
       _cardGraceFrames++;
-      if (_cardGraceFrames > 5) {
+      if (_cardGraceFrames > 12) {
         _cardSmoothedCorners = null;
         _cardGraceFrames = 0;
       } else {
@@ -2407,7 +2428,20 @@ const cardDetectionDemo: DemoDefinition = {
       8, h - 8,
     );
 
-    const qScore = detected ? _cardLastRectFill * _cardLastAspect : 0;
+    // Quality = (1 - ratio deviation from 5:7) using actual quad side lengths
+    // 100% means detected quad has exactly 5:7 aspect ratio
+    let qScore = 0;
+    if (detected && cardCorners.length === 4) {
+      // Compute average width (top+bottom edges) and height (left+right edges)
+      const topLen = Math.sqrt((cardCorners[1].x - cardCorners[0].x) ** 2 + (cardCorners[1].y - cardCorners[0].y) ** 2);
+      const botLen = Math.sqrt((cardCorners[2].x - cardCorners[3].x) ** 2 + (cardCorners[2].y - cardCorners[3].y) ** 2);
+      const leftLen = Math.sqrt((cardCorners[3].x - cardCorners[0].x) ** 2 + (cardCorners[3].y - cardCorners[0].y) ** 2);
+      const rightLen = Math.sqrt((cardCorners[2].x - cardCorners[1].x) ** 2 + (cardCorners[2].y - cardCorners[1].y) ** 2);
+      const avgW = (topLen + botLen) / 2;
+      const avgH = (leftLen + rightLen) / 2;
+      const quadAspect = Math.min(avgW, avgH) / Math.max(avgW, avgH);
+      qScore = Math.max(0, 1 - Math.abs(quadAspect - 5 / 7) * 3);
+    }
     _cardQualityHistory.push(qScore);
     if (_cardQualityHistory.length > CARD_HISTORY_LEN) _cardQualityHistory.shift();
     const chartW = Math.min(_cardQualityHistory.length, 120);
@@ -2436,6 +2470,7 @@ const cardDetectionDemo: DemoDefinition = {
     _cardEdges = null;
     _cardSmoothedCorners = null;
     _cardGraceFrames = 0;
+    _cardPrevThreshold = 0;
   },
 };
 

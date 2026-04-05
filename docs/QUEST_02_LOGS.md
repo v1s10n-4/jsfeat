@@ -48,7 +48,29 @@
 - Quality chart (top-right) shows detection consistency
 - 60 FPS at 640x480, total ~12.5ms/frame
 
-### Remaining Issues
+### Remaining Issues (LEVEL_2)
 - Bottom edge extends ~3-5px below card (higher edge density from card text)
 - Slider defaults don't auto-refresh via HMR (old values stick from previous session)
-- Camera perspective makes the card's apparent ratio ≠ 5:7 (perspective distortion)
+
+## LEVEL_3 — Complex Background
+
+### Challenge
+Card on dark wood table with busy room behind (furniture, bookshelves, person).
+Edge density morph blob explodes to cover entire frame → 0 FPS, false positives.
+
+### Solutions Applied
+1. **Heavy blur (min kernel 15)**: suppresses fine texture (wood grain, fabric) while preserving card border
+2. **Adaptive density threshold (`mean + 5`)**: scales with scene complexity, filters noise
+3. **Canny high > low enforcement**: prevents invalid threshold ordering
+4. **Min contour area 3% of frame**: eliminates small internal contour fragments
+5. **brArea scoring** → `contour.area * rectFill * aspectMatch`: prefers large filled contours
+6. **Quality score = quad side-length ratio vs 5:7**: measures actual quad shape, not bounding rect
+
+### Key Learnings
+- `mean * 2` adaptive threshold is too aggressive with heavy blur (suppresses card blob too)
+- `mean + 5` is gentler and works for both clean and busy backgrounds
+- Direct Canny contour approach (no morph) fails on complex backgrounds — too many fragments
+- Oriented moments-based rect fails when morph blob merges card with background
+- Bounding rect fallback is more stable than moments-based orientation for irregular blobs
+- Min area threshold (3% of frame) is critical for rejecting small false positives
+- Quality should use quad side lengths, not bounding rect dimensions (rotation invariant)
