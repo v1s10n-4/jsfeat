@@ -2349,7 +2349,7 @@ const cardDetectionDemo: DemoDefinition = {
     }
 
     // Draw card preview and overlay
-    if (detected && cardCorners.length === 4) {
+    if (_cardShowPipelineOverlays && detected && cardCorners.length === 4) {
       // 1. FIRST: Color perspective warp for the preview (before drawing any overlays)
       profiler.start('warp');
 

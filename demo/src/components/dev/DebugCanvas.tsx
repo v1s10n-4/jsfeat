@@ -138,6 +138,11 @@ export default function DebugCanvas({
 
   const profiler = useProfiler();
 
+  // Clicked coordinate for the picker (static-image mode only)
+  const [clickedCoord, setClickedCoord] = useState<{ x: number; y: number } | null>(null);
+  const clickedCoordRef = useRef(clickedCoord);
+  useEffect(() => { clickedCoordRef.current = clickedCoord; }, [clickedCoord]);
+
   // Expose refs via stable callbacks so the animation loop can read them
   const showCannyRef = useRef(showCanny);
   const showMorphRef = useRef(showMorph);
@@ -343,6 +348,34 @@ export default function DebugCanvas({
   }, []);
 
   // ---------------------------------------------------------------------------
+  // Redraw overlay when clicked coordinate changes (to show/move the crosshair)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (isWebcam) return;
+    const canvas = baseCanvasRef.current;
+    if (!canvas) return;
+    drawOverlays(canvas.width, canvas.height);
+  }, [clickedCoord, isWebcam, drawOverlays]);
+
+  // ---------------------------------------------------------------------------
+  // Coordinate picker — click on the base canvas in static-image mode
+  // ---------------------------------------------------------------------------
+  function handleCanvasClick(e: React.MouseEvent<HTMLCanvasElement>) {
+    const canvas = baseCanvasRef.current;
+    if (!canvas || isWebcam) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+    // Convert to original image coordinates (undo scale)
+    const s = scale ?? 1;
+    const origX = Math.round(x / s);
+    const origY = Math.round(y / s);
+    setClickedCoord({ x: origX, y: origY });
+  }
+
+  // ---------------------------------------------------------------------------
   // Overlay renderer (reads debug buffers, paints onto overlay canvas)
   // ---------------------------------------------------------------------------
   const drawOverlays = useCallback((w: number, h: number) => {
@@ -404,6 +437,19 @@ export default function DebugCanvas({
       octx.closePath();
       octx.stroke();
       octx.setLineDash([]);
+    }
+
+    // Coordinate picker crosshair (magenta)
+    if (clickedCoordRef.current) {
+      const s = scale ?? 1;
+      const cx = clickedCoordRef.current.x * s;
+      const cy = clickedCoordRef.current.y * s;
+      octx.strokeStyle = '#ff00ff';
+      octx.lineWidth = 1;
+      octx.beginPath();
+      octx.moveTo(cx - 10, cy); octx.lineTo(cx + 10, cy);
+      octx.moveTo(cx, cy - 10); octx.lineTo(cx, cy + 10);
+      octx.stroke();
     }
   }, [groundTruth, scale]);
 
@@ -494,6 +540,8 @@ export default function DebugCanvas({
         <canvas
           ref={baseCanvasRef}
           className="block w-full h-full object-contain"
+          style={!isWebcam ? { cursor: 'crosshair' } : undefined}
+          onClick={handleCanvasClick}
         />
         {/* Overlay canvas: debug colors drawn here, positioned on top */}
         <canvas
@@ -520,6 +568,11 @@ export default function DebugCanvas({
                 <span className="text-foreground">{s.ms.toFixed(1)} ms</span>
               </span>
             ))}
+          </div>
+        )}
+        {clickedCoord && !isWebcam && (
+          <div className="text-xs font-mono text-blue-400">
+            Clicked: ({clickedCoord.x}, {clickedCoord.y}) in 1920x1080 space
           </div>
         )}
       </div>
