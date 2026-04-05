@@ -62,6 +62,8 @@ interface DebugCanvasProps {
   groundTruth?: GroundTruth | null;
   /** When true, enable interactive corner annotation mode. */
   annotationMode?: boolean;
+  /** Bump to force re-processing the current image. */
+  retestTick?: number;
   /** Called whenever annotation corners are updated. */
   onAnnotationUpdate?: (corners: CornerTuple) => void;
 }
@@ -126,6 +128,7 @@ export default function DebugCanvas({
   groundTruth,
   annotationMode,
   onAnnotationUpdate,
+  retestTick,
 }: DebugCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -293,7 +296,7 @@ export default function DebugCanvas({
     };
     img.src = imageSrc;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageSrc, isWebcam, scale]);
+  }, [imageSrc, isWebcam, scale, retestTick]);
 
   // ---------------------------------------------------------------------------
   // Notify demo of param changes

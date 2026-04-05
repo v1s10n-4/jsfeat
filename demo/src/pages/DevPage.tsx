@@ -66,6 +66,7 @@ export default function DevPage() {
   const [scale, setScale] = useState(1);
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
   const [renderTick, setRenderTick] = useState(0);
+  const [retestTick, setRetestTick] = useState(0);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(loadVerdicts);
   const [batchRunning, setBatchRunning] = useState(false);
   const [accuracyThreshold, setAccuracyThreshold] = useState(50); // pixels
@@ -373,6 +374,7 @@ export default function DevPage() {
             groundTruth={currentGroundTruth}
             annotationMode={annotationMode}
             onAnnotationUpdate={handleAnnotationUpdate}
+            retestTick={retestTick}
           />
         </div>
 
@@ -391,16 +393,23 @@ export default function DevPage() {
             verdict={selectedVerdict}
             onRetest={() => {
               if (!selectedImage) return;
-              const m = latestMetricsRef.current;
-              const gt = currentGroundTruthRef.current;
-              if (!gt || !m?.detected || !m.accuracy) {
-                const next = { ...verdicts, [selectedImage]: 'fail' as const };
-                setVerdicts(next); saveVerdicts(next);
-              } else {
-                const v = m.accuracy.meanDist <= accuracyThreshold ? 'pass' : 'fail';
-                const next = { ...verdicts, [selectedImage]: v as 'pass' | 'fail' };
-                setVerdicts(next); saveVerdicts(next);
-              }
+              // Bump retestTick to force DebugCanvas to re-process the image
+              setRetestTick((t) => t + 1);
+              // Verdict will be updated after re-processing via handleMetricsUpdate
+              // Use a delayed check to read the new metrics
+              setTimeout(() => {
+                const m = latestMetricsRef.current;
+                const img = testImages.find((i) => i.path === selectedImage);
+                if (!img?.groundTruth || !m?.corners || m.corners.length < 4) {
+                  const next = { ...verdicts, [selectedImage]: 'fail' as const };
+                  setVerdicts(next); saveVerdicts(next);
+                } else {
+                  const acc = computeAccuracy(m.corners, img.groundTruth, scale);
+                  const v = acc.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+                  const next = { ...verdicts, [selectedImage]: v as 'pass' | 'fail' };
+                  setVerdicts(next); saveVerdicts(next);
+                }
+              }, 500);
             }}
           />
         </div>
