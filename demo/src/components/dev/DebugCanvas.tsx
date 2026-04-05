@@ -33,6 +33,14 @@ export interface DetectionMetrics {
 // Props
 // ---------------------------------------------------------------------------
 
+/** Four-corner tuple used for annotation callbacks. */
+export type CornerTuple = [
+  { x: number; y: number },
+  { x: number; y: number },
+  { x: number; y: number },
+  { x: number; y: number },
+];
+
 interface DebugCanvasProps {
   /** Static image URL, or null when using webcam. */
   imageSrc: string | null;
@@ -52,6 +60,10 @@ interface DebugCanvasProps {
   scale?: number;
   /** Ground truth corners for the current image (if annotated). */
   groundTruth?: GroundTruth | null;
+  /** When true, enable interactive corner annotation mode. */
+  annotationMode?: boolean;
+  /** Called whenever annotation corners are updated. */
+  onAnnotationUpdate?: (corners: CornerTuple) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -112,6 +124,8 @@ export default function DebugCanvas({
   onProcessingComplete,
   scale,
   groundTruth,
+  annotationMode,
+  onAnnotationUpdate,
 }: DebugCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -142,6 +156,31 @@ export default function DebugCanvas({
   const [clickedCoord, setClickedCoord] = useState<{ x: number; y: number } | null>(null);
   const clickedCoordRef = useRef(clickedCoord);
   useEffect(() => { clickedCoordRef.current = clickedCoord; }, [clickedCoord]);
+
+  // Annotation state
+  const [annotCorners, setAnnotCorners] = useState<{ x: number; y: number }[]>([]);
+  const [selectedCorner, setSelectedCorner] = useState<number | null>(null);
+  const annotCornersRef = useRef(annotCorners);
+  const selectedCornerRef = useRef(selectedCorner);
+  const annotationModeRef = useRef(annotationMode);
+  useEffect(() => { annotCornersRef.current = annotCorners; }, [annotCorners]);
+  useEffect(() => { selectedCornerRef.current = selectedCorner; }, [selectedCorner]);
+  useEffect(() => { annotationModeRef.current = annotationMode; }, [annotationMode]);
+
+  // Stable ref for onAnnotationUpdate to avoid stale closures
+  const onAnnotationUpdateRef = useRef(onAnnotationUpdate);
+  useEffect(() => { onAnnotationUpdateRef.current = onAnnotationUpdate; }, [onAnnotationUpdate]);
+
+  // Initialize / reset annotation corners when groundTruth or imageSrc changes
+  useEffect(() => {
+    if (!annotationMode) return;
+    if (groundTruth) {
+      setAnnotCorners(groundTruth.corners.map((c) => ({ x: c.x, y: c.y })));
+    } else {
+      setAnnotCorners([]);
+    }
+    setSelectedCorner(null);
+  }, [groundTruth, imageSrc, annotationMode]);
 
   // Expose refs via stable callbacks so the animation loop can read them
   const showCannyRef = useRef(showCanny);
@@ -362,7 +401,58 @@ export default function DebugCanvas({
     const s = scale ?? 1;
     const origX = Math.round(x / s);
     const origY = Math.round(y / s);
+
+    if (annotationMode) {
+      handleAnnotationClick(origX, origY, s);
+      return;
+    }
+
     setClickedCoord({ x: origX, y: origY });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Annotation click handler
+  // ---------------------------------------------------------------------------
+  function handleAnnotationClick(origX: number, origY: number, s: number) {
+    const corners = [...annotCornersRef.current];
+
+    if (corners.length < 4) {
+      // Placing corners one by one: TL, TR, BR, BL
+      const next = [...corners, { x: origX, y: origY }];
+      setAnnotCorners(next);
+      setSelectedCorner(null);
+      if (next.length === 4) {
+        onAnnotationUpdateRef.current?.(next as CornerTuple);
+      }
+      return;
+    }
+
+    // All 4 corners exist — check if click is near an existing corner
+    const THRESHOLD = 20; // pixels in original image space
+    let nearIdx: number | null = null;
+    let nearDist = Infinity;
+    for (let i = 0; i < 4; i++) {
+      const dx = corners[i].x - origX;
+      const dy = corners[i].y - origY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // Account for scale: threshold is in original-image pixels
+      if (dist < THRESHOLD / s && dist < nearDist) {
+        nearIdx = i;
+        nearDist = dist;
+      }
+    }
+
+    if (nearIdx !== null) {
+      // Select this corner
+      setSelectedCorner(nearIdx);
+    } else if (selectedCornerRef.current !== null) {
+      // Move the selected corner to the clicked position
+      const idx = selectedCornerRef.current;
+      corners[idx] = { x: origX, y: origY };
+      setAnnotCorners(corners);
+      setSelectedCorner(null);
+      onAnnotationUpdateRef.current?.(corners as CornerTuple);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -414,23 +504,77 @@ export default function DebugCanvas({
       }
     }
 
-    // Ground truth overlay (blue dashed)
-    if (showGroundTruthRef.current && groundTruth) {
+    // Annotation overlay (replaces ground truth when in annotation mode)
+    if (annotationModeRef.current) {
       const s = scale ?? 1;
-      octx.strokeStyle = '#3b82f6';
-      octx.lineWidth = 2;
-      octx.setLineDash([8, 4]);
-      octx.beginPath();
-      const gt = groundTruth.corners;
-      octx.moveTo(gt[0].x * s, gt[0].y * s);
-      for (let i = 1; i < 4; i++) octx.lineTo(gt[i].x * s, gt[i].y * s);
-      octx.closePath();
-      octx.stroke();
-      octx.setLineDash([]);
+      const corners = annotCornersRef.current;
+      const selIdx = selectedCornerRef.current;
+      const labels = ['TL', 'TR', 'BR', 'BL'];
+
+      // Draw quad connecting the corners (blue dashed)
+      if (corners.length >= 2) {
+        octx.strokeStyle = '#3b82f6';
+        octx.lineWidth = 2;
+        octx.setLineDash([8, 4]);
+        octx.beginPath();
+        octx.moveTo(corners[0].x * s, corners[0].y * s);
+        for (let i = 1; i < corners.length; i++) {
+          octx.lineTo(corners[i].x * s, corners[i].y * s);
+        }
+        if (corners.length === 4) octx.closePath();
+        octx.stroke();
+        octx.setLineDash([]);
+      }
+
+      // Draw corner circles and labels
+      for (let i = 0; i < corners.length; i++) {
+        const cx = corners[i].x * s;
+        const cy = corners[i].y * s;
+
+        // Circle
+        octx.beginPath();
+        octx.arc(cx, cy, 12, 0, Math.PI * 2);
+        octx.fillStyle = i === selIdx ? '#eab308' : '#3b82f6';
+        octx.fill();
+        octx.strokeStyle = '#ffffff';
+        octx.lineWidth = 2;
+        octx.stroke();
+
+        // Label
+        octx.font = 'bold 12px monospace';
+        octx.fillStyle = '#ffffff';
+        octx.fillText(labels[i], cx + 16, cy + 4);
+      }
+
+      // Instruction text
+      octx.font = '13px sans-serif';
+      octx.fillStyle = 'rgba(255,255,255,0.85)';
+      octx.strokeStyle = 'rgba(0,0,0,0.6)';
+      octx.lineWidth = 3;
+      const instr = corners.length < 4
+        ? `Click to place corners (TL\u2192TR\u2192BR\u2192BL) \u2014 ${corners.length}/4`
+        : 'Click a corner to select, then click to move';
+      octx.strokeText(instr, 12, 24);
+      octx.fillText(instr, 12, 24);
+    } else {
+      // Ground truth overlay (blue dashed) — only when NOT in annotation mode
+      if (showGroundTruthRef.current && groundTruth) {
+        const s = scale ?? 1;
+        octx.strokeStyle = '#3b82f6';
+        octx.lineWidth = 2;
+        octx.setLineDash([8, 4]);
+        octx.beginPath();
+        const gt = groundTruth.corners;
+        octx.moveTo(gt[0].x * s, gt[0].y * s);
+        for (let i = 1; i < 4; i++) octx.lineTo(gt[i].x * s, gt[i].y * s);
+        octx.closePath();
+        octx.stroke();
+        octx.setLineDash([]);
+      }
     }
 
-    // Coordinate picker crosshair (magenta)
-    if (clickedCoordRef.current) {
+    // Coordinate picker crosshair (magenta) — skip in annotation mode
+    if (!annotationModeRef.current && clickedCoordRef.current) {
       const s = scale ?? 1;
       const cx = clickedCoordRef.current.x * s;
       const cy = clickedCoordRef.current.y * s;
@@ -443,13 +587,13 @@ export default function DebugCanvas({
     }
   }, [groundTruth, scale]);
 
-  // Redraw overlay when clicked coordinate changes (to show/move the crosshair)
+  // Redraw overlay when clicked coordinate or annotation state changes
   useEffect(() => {
     if (isWebcam) return;
     const canvas = baseCanvasRef.current;
     if (!canvas) return;
     drawOverlays(canvas.width, canvas.height);
-  }, [clickedCoord, isWebcam, drawOverlays]);
+  }, [clickedCoord, annotCorners, selectedCorner, annotationMode, isWebcam, drawOverlays]);
 
   // ---------------------------------------------------------------------------
   // Metrics reporter

@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import DebugCanvas, { type DetectionMetrics } from '@/components/dev/DebugCanvas';
+import DebugCanvas, { type DetectionMetrics, type CornerTuple } from '@/components/dev/DebugCanvas';
 import PipelineStages from '@/components/dev/PipelineStages';
 import DetectionPanel, { DEFAULT_PARAMS } from '@/components/dev/DetectionPanel';
 import TestImageStrip, { type Verdict } from '@/components/dev/TestImageStrip';
@@ -69,14 +69,20 @@ export default function DevPage() {
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(loadVerdicts);
   const [notes, setNotes] = useState<string>(loadNotes);
   const [batchRunning, setBatchRunning] = useState(false);
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [annotationEdits, setAnnotationEdits] = useState<Record<string, CornerTuple>>({});
+  const [exportToast, setExportToast] = useState(false);
 
   // Latest metrics ref used by handleRunAll without stale closure issues
   const latestMetricsRef = useRef<DetectionMetrics | null>(null);
 
-  // Ground truth for selected image
-  const currentGroundTruth: GroundTruth | null = selectedImage
+  // Ground truth for selected image — annotation edits take priority
+  const manifestGroundTruth: GroundTruth | null = selectedImage
     ? (testImages.find((img) => img.path === selectedImage)?.groundTruth ?? null)
     : null;
+  const currentGroundTruth: GroundTruth | null = selectedImage && annotationEdits[selectedImage]
+    ? { corners: annotationEdits[selectedImage] }
+    : manifestGroundTruth;
   const currentGroundTruthRef = useRef(currentGroundTruth);
   useEffect(() => { currentGroundTruthRef.current = currentGroundTruth; }, [currentGroundTruth]);
 
@@ -150,6 +156,33 @@ export default function DevPage() {
     setNotes(n);
     saveNotes(n);
   }, []);
+
+  // -------------------------------------------------------------------------
+  // Annotation update
+  // -------------------------------------------------------------------------
+  const handleAnnotationUpdate = useCallback(
+    (corners: CornerTuple) => {
+      if (!selectedImage) return;
+      setAnnotationEdits((prev) => ({ ...prev, [selectedImage]: corners }));
+    },
+    [selectedImage],
+  );
+
+  const handleExportAnnotations = useCallback(async () => {
+    const output: Record<string, { corners: CornerTuple }> = {};
+    for (const [path, corners] of Object.entries(annotationEdits)) {
+      output[path] = { corners };
+    }
+    const json = JSON.stringify(output, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      setExportToast(true);
+      setTimeout(() => setExportToast(false), 2000);
+    } catch {
+      // Fallback: prompt-style alert
+      window.alert('Copied annotation JSON — paste into manifest.\n\n' + json);
+    }
+  }, [annotationEdits]);
 
   // -------------------------------------------------------------------------
   // Image selection
@@ -231,6 +264,30 @@ export default function DevPage() {
 
         <div className="flex items-center gap-2 ml-auto">
           <Switch
+            id="annotate-toggle"
+            checked={annotationMode}
+            onCheckedChange={setAnnotationMode}
+          />
+          <Label htmlFor="annotate-toggle" className="text-sm">
+            Annotate
+          </Label>
+        </div>
+
+        {annotationMode && Object.keys(annotationEdits).length > 0 && (
+          <div className="relative">
+            <Button variant="outline" size="sm" onClick={handleExportAnnotations}>
+              Export Annotations ({Object.keys(annotationEdits).length})
+            </Button>
+            {exportToast && (
+              <span className="absolute -bottom-6 left-0 text-xs text-green-400 whitespace-nowrap">
+                Copied to clipboard
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Switch
             id="webcam-toggle"
             checked={isWebcam}
             onCheckedChange={handleWebcamToggle}
@@ -270,6 +327,8 @@ export default function DevPage() {
             onMetricsUpdate={handleMetricsUpdate}
             scale={scale}
             groundTruth={currentGroundTruth}
+            annotationMode={annotationMode}
+            onAnnotationUpdate={handleAnnotationUpdate}
           />
         </div>
 
