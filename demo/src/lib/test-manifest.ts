@@ -22,7 +22,8 @@ export const testImages: TestImage[] = [
   {
     "path": "/test-images/paper-bg/Photo-1.jpeg",
     "filename": "Photo-1.jpeg",
-    "category": "paper-bg"
+    "category": "paper-bg",
+    "groundTruth": { "corners": [{"x":538,"y":298},{"x":1219,"y":266},{"x":1212,"y":605},{"x":540,"y":616}] }
   },
   {
     "path": "/test-images/paper-bg/Photo-2.jpeg",
