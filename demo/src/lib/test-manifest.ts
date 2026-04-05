@@ -325,23 +325,32 @@ export function computeAccuracy(
   let bestMean = Infinity;
   let bestResult = { meanDist: Infinity, maxDist: Infinity, perCorner: [0, 0, 0, 0] };
 
-  for (let rotation = 0; rotation < 4; rotation++) {
-    const perCorner: number[] = [];
-    let sum = 0;
-    let max = 0;
-    for (let i = 0; i < 4; i++) {
-      const di = (i + rotation) % 4;
-      const dx = detected[di].x / scale - truth.corners[i].x;
-      const dy = detected[di].y / scale - truth.corners[i].y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      perCorner.push(dist);
-      sum += dist;
-      if (dist > max) max = dist;
-    }
-    const mean = sum / 4;
-    if (mean < bestMean) {
-      bestMean = mean;
-      bestResult = { meanDist: mean, maxDist: max, perCorner };
+  // Try both winding orders (CW and CCW) × 4 rotations = 8 comparisons.
+  // Ground truth corners may be annotated in either winding direction.
+  const orders = [
+    [0, 1, 2, 3], // original winding
+    [0, 3, 2, 1], // reversed winding
+  ];
+
+  for (const order of orders) {
+    for (let rotation = 0; rotation < 4; rotation++) {
+      const perCorner: number[] = [];
+      let sum = 0;
+      let max = 0;
+      for (let i = 0; i < 4; i++) {
+        const di = order[(i + rotation) % 4];
+        const dx = detected[di].x / scale - truth.corners[i].x;
+        const dy = detected[di].y / scale - truth.corners[i].y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        perCorner.push(dist);
+        sum += dist;
+        if (dist > max) max = dist;
+      }
+      const mean = sum / 4;
+      if (mean < bestMean) {
+        bestMean = mean;
+        bestResult = { meanDist: mean, maxDist: max, perCorner };
+      }
     }
   }
 
