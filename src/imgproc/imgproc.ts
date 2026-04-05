@@ -6,7 +6,7 @@
 
 import { pool } from '../core/cache';
 import { Matrix } from '../core/matrix';
-import { DataType, ColorCode, BOX_BLUR_NOSCALE, S32C2 } from '../core/types';
+import { DataType, ColorCode, BOX_BLUR_NOSCALE, S32C2, U8C1 } from '../core/types';
 import type { TypedArrayUnion } from '../core/types';
 import { getGaussianKernel } from '../math/math';
 
@@ -1254,4 +1254,336 @@ export function warpAffine(src: Matrix, dst: Matrix, transform: Matrix, fillValu
       else dst_d[dptr] = fillValue;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Adaptive thresholding
+// ---------------------------------------------------------------------------
+
+/**
+ * Adaptive method for per-pixel thresholding.
+ */
+export enum AdaptiveMethod {
+  /** Local mean computed via box blur. */
+  MEAN = 0,
+  /** Local mean computed via Gaussian blur. */
+  GAUSSIAN = 1,
+}
+
+/**
+ * Apply adaptive thresholding based on local neighborhood statistics.
+ *
+ * For each pixel, computes a local mean over a blockSize x blockSize neighborhood
+ * and thresholds: dst[i] = (src[i] > localMean - constant) ? maxValue : 0.
+ *
+ * @param src - Input grayscale image (U8C1).
+ * @param dst - Output binary image (U8C1).
+ * @param maxValue - Value assigned to pixels passing the threshold (typically 255).
+ * @param method - AdaptiveMethod.MEAN or AdaptiveMethod.GAUSSIAN.
+ * @param blockSize - Size of local neighborhood (must be odd, >= 3).
+ * @param constant - Value subtracted from local mean before comparison.
+ */
+export function adaptiveThreshold(
+  src: Matrix,
+  dst: Matrix,
+  maxValue: number,
+  method: AdaptiveMethod,
+  blockSize: number,
+  constant: number,
+): void {
+  const w = src.cols, h = src.rows;
+  dst.resize(w, h, 1);
+
+  // Ensure blockSize is odd and >= 3
+  if (blockSize < 3) blockSize = 3;
+  if ((blockSize & 1) === 0) blockSize += 1;
+
+  // Compute local mean into a temp matrix
+  const mean = new Matrix(w, h, U8C1);
+  if (method === AdaptiveMethod.GAUSSIAN) {
+    gaussianBlur(src, mean, blockSize, 0);
+  } else {
+    boxBlurGray(src, mean, (blockSize - 1) >> 1);
+  }
+
+  // Threshold: dst[i] = (src[i] > mean[i] - constant) ? maxValue : 0
+  const sd = src.data, md = mean.data, dd = dst.data;
+  const n = w * h;
+  for (let i = 0; i < n; i++) {
+    dd[i] = sd[i] > (md[i] - constant) ? maxValue : 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Perspective warp
+// ---------------------------------------------------------------------------
+
+/**
+ * Warp an image using a 3x3 perspective (homography) transform.
+ *
+ * Supports single and multi-channel images. Uses backward mapping with
+ * bilinear interpolation for sub-pixel accuracy.
+ *
+ * @param src - Source image (any type/channels).
+ * @param dst - Destination image (pre-allocated with desired output dimensions).
+ * @param transform - 3x3 homography matrix (F32C1 or F64C1). Maps source to destination.
+ * @param fillValue - Value for out-of-bounds pixels (default 0).
+ */
+export function warpPerspective(
+  src: Matrix,
+  dst: Matrix,
+  transform: Matrix,
+  fillValue: number = 0,
+): void {
+  const sw = src.cols, sh = src.rows;
+  const dw = dst.cols, dh = dst.rows;
+  const ch = src.channel;
+  const sd = src.data, dd = dst.data;
+  const td = transform.data;
+
+  const h0 = td[0], h1 = td[1], h2 = td[2];
+  const h3 = td[3], h4 = td[4], h5 = td[5];
+  const h6 = td[6], h7 = td[7], h8 = td[8];
+
+  let dptr = 0;
+
+  for (let dy = 0; dy < dh; dy++) {
+    // Precompute row-level terms
+    const ry = h1 * dy + h2;
+    const ry2 = h4 * dy + h5;
+    const rw = h7 * dy + h8;
+
+    for (let dx = 0; dx < dw; dx++) {
+      const w = h6 * dx + rw;
+
+      if (Math.abs(w) < 1e-10) {
+        // Degenerate -- fill
+        for (let c = 0; c < ch; c++) dd[dptr++] = fillValue;
+        continue;
+      }
+
+      const invW = 1.0 / w;
+      const sx = (h0 * dx + ry) * invW;
+      const sy = (h3 * dx + ry2) * invW;
+
+      const ix = sx | 0;
+      const iy = sy | 0;
+
+      if (ix >= 0 && iy >= 0 && ix < sw - 1 && iy < sh - 1) {
+        const a = sx - ix;
+        const b = sy - iy;
+
+        if (ch === 1) {
+          // Single channel -- optimized scalar path
+          const off = iy * sw + ix;
+          const p0 = sd[off] + a * (sd[off + 1] - sd[off]);
+          const p1 = sd[off + sw] + a * (sd[off + sw + 1] - sd[off + sw]);
+          dd[dptr++] = (p0 + b * (p1 - p0)) | 0;
+        } else {
+          // Multi-channel
+          const off = (iy * sw + ix) * ch;
+          const stride = sw * ch;
+          for (let c = 0; c < ch; c++) {
+            const p0 = sd[off + c] + a * (sd[off + ch + c] - sd[off + c]);
+            const p1 = sd[off + stride + c] + a * (sd[off + stride + ch + c] - sd[off + stride + c]);
+            dd[dptr++] = (p0 + b * (p1 - p0)) | 0;
+          }
+        }
+      } else {
+        for (let c = 0; c < ch; c++) dd[dptr++] = fillValue;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Contour detection
+// ---------------------------------------------------------------------------
+
+/**
+ * A detected contour (connected boundary) in a binary image.
+ */
+export interface Contour {
+  /** Ordered array of boundary points tracing the contour. */
+  points: { x: number; y: number }[];
+  /** Contour area computed via the shoelace formula. */
+  area: number;
+  /** Contour perimeter (sum of point-to-point distances). */
+  perimeter: number;
+  /** Axis-aligned bounding rectangle. */
+  boundingRect: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Contour retrieval mode.
+ */
+export enum ContourMode {
+  /** Retrieve only the outermost contours. */
+  EXTERNAL = 0,
+  /** Retrieve all contours without hierarchy. */
+  LIST = 1,
+}
+
+/**
+ * Find contours (connected boundaries) in a binary image.
+ *
+ * Uses Moore boundary tracing (8-connectivity) to trace each contour.
+ * Input must be a binary image (0 = background, non-zero = foreground).
+ *
+ * Based on: Suzuki, S. and Abe, K., "Topological Structural Analysis of
+ * Digitized Binary Images by Border Following", CVGIP 30(1), 1985.
+ *
+ * @param src - Binary input image (U8C1, values 0 or non-zero).
+ * @param mode - ContourMode.LIST (all contours) or ContourMode.EXTERNAL (outermost only).
+ * @returns Array of Contour objects sorted by area descending.
+ */
+export function findContours(src: Matrix, mode: ContourMode = ContourMode.LIST): Contour[] {
+  const w = src.cols, h = src.rows;
+  const sd = src.data;
+
+  // Work on a copy (border tracing modifies the image)
+  const img = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) img[i] = sd[i] ? 1 : 0;
+
+  const contours: Contour[] = [];
+
+  // 8-connectivity neighbor offsets (clockwise from right)
+  const ndx = [1, 1, 0, -1, -1, -1, 0, 1];
+  const ndy = [0, 1, 1, 1, 0, -1, -1, -1];
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (img[y * w + x] !== 1) continue;
+      // Check if this is an outer border start (pixel to the left is 0 or border)
+      if (x > 0 && img[y * w + x - 1] !== 0) continue;
+
+      // Trace contour using Moore boundary tracing
+      const points: { x: number; y: number }[] = [];
+      let cx = x, cy = y;
+      let dir = 0; // start searching to the right
+      const startX = x, startY = y;
+      let steps = 0;
+      const maxSteps = w * h * 2;
+
+      do {
+        points.push({ x: cx, y: cy });
+        img[cy * w + cx] = 2; // mark as traced
+
+        // Find next boundary pixel
+        let found = false;
+        const searchStart = (dir + 5) % 8; // start 3 positions back
+        for (let d = 0; d < 8; d++) {
+          const nd = (searchStart + d) % 8;
+          const nx = cx + ndx[nd], ny = cy + ndy[nd];
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h && img[ny * w + nx] >= 1) {
+            dir = nd;
+            cx = nx;
+            cy = ny;
+            found = true;
+            break;
+          }
+        }
+        if (!found) break;
+        steps++;
+      } while ((cx !== startX || cy !== startY) && steps < maxSteps);
+
+      if (points.length < 3) continue;
+
+      // Compute contour properties
+      let area = 0;
+      let perimeter = 0;
+      let minX = w, minY = h, maxX = 0, maxY = 0;
+      for (let i = 0; i < points.length; i++) {
+        const p = points[i];
+        const q = points[(i + 1) % points.length];
+        area += p.x * q.y - q.x * p.y;
+        const ddx = q.x - p.x, ddy = q.y - p.y;
+        perimeter += Math.sqrt(ddx * ddx + ddy * ddy);
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+      area = Math.abs(area / 2);
+
+      contours.push({
+        points,
+        area,
+        perimeter,
+        boundingRect: { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 },
+      });
+
+      // EXTERNAL mode: fill interior to skip inner contours
+      if (mode === ContourMode.EXTERNAL) {
+        for (let fy = minY; fy <= maxY; fy++) {
+          for (let fx = minX; fx <= maxX; fx++) {
+            if (img[fy * w + fx] === 1) img[fy * w + fx] = 2;
+          }
+        }
+      }
+    }
+  }
+
+  // Sort by area descending
+  contours.sort((a, b) => b.area - a.area);
+  return contours;
+}
+
+/**
+ * Approximate a contour polygon using the Douglas-Peucker algorithm.
+ *
+ * Simplifies a contour to fewer points while preserving shape within
+ * the specified epsilon tolerance. Useful for reducing a traced contour
+ * to its essential vertices (e.g., 4 points for a rectangle).
+ *
+ * @param contour - Input contour from findContours.
+ * @param epsilon - Maximum distance from the original contour (larger = fewer points).
+ * @returns Simplified array of points.
+ */
+export function approxPoly(
+  contour: Contour,
+  epsilon: number,
+): { x: number; y: number }[] {
+  const pts = contour.points;
+  if (pts.length <= 2) return pts.slice();
+
+  // Close the contour for processing
+  const closed = pts.concat([pts[0]]);
+
+  function _dp(points: { x: number; y: number }[], eps: number): { x: number; y: number }[] {
+    if (points.length <= 2) return points;
+    let maxDist = 0, maxIdx = 0;
+    const first = points[0], last = points[points.length - 1];
+    const lx = last.x - first.x, ly = last.y - first.y;
+    const lenSq = lx * lx + ly * ly;
+    for (let i = 1; i < points.length - 1; i++) {
+      let dist: number;
+      if (lenSq === 0) {
+        const ddx = points[i].x - first.x, ddy = points[i].y - first.y;
+        dist = Math.sqrt(ddx * ddx + ddy * ddy);
+      } else {
+        const t = Math.max(0, Math.min(1,
+          ((points[i].x - first.x) * lx + (points[i].y - first.y) * ly) / lenSq));
+        const px = first.x + t * lx, py = first.y + t * ly;
+        const ddx = points[i].x - px, ddy = points[i].y - py;
+        dist = Math.sqrt(ddx * ddx + ddy * ddy);
+      }
+      if (dist > maxDist) { maxDist = dist; maxIdx = i; }
+    }
+    if (maxDist > eps) {
+      const left = _dp(points.slice(0, maxIdx + 1), eps);
+      const right = _dp(points.slice(maxIdx), eps);
+      return left.slice(0, -1).concat(right);
+    }
+    return [first, last];
+  }
+
+  let result = _dp(closed, epsilon);
+  // Remove duplicate closing point
+  if (result.length > 1 &&
+      result[0].x === result[result.length - 1].x &&
+      result[0].y === result[result.length - 1].y) {
+    result = result.slice(0, -1);
+  }
+  return result;
 }

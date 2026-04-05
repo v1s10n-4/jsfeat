@@ -10,4 +10,12 @@ export {
   equalizeHistogram,
   computeIntegralImage,
   warpAffine,
+  adaptiveThreshold,
+  AdaptiveMethod,
+  warpPerspective,
+  findContours,
+  approxPoly,
+  ContourMode,
 } from './imgproc';
+
+export type { Contour } from './imgproc';

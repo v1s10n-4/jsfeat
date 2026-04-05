@@ -11,6 +11,12 @@ import {
   equalizeHistogram,
   computeIntegralImage,
   warpAffine,
+  adaptiveThreshold,
+  AdaptiveMethod,
+  warpPerspective,
+  findContours,
+  approxPoly,
+  ContourMode,
 } from '../../src/imgproc/imgproc';
 import { Matrix } from '../../src/core/matrix';
 import { U8C1, S32C1, S32C2, F32C1, ColorCode } from '../../src/core/types';
@@ -566,5 +572,246 @@ describe('warpAffine', () => {
     for (let i = 0; i < w * h; i++) {
       expect(dst.data[i]).toBe(fillVal);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// adaptiveThreshold
+// ---------------------------------------------------------------------------
+
+describe('adaptiveThreshold', () => {
+  it('sets all pixels to maxValue for uniform bright image', () => {
+    const src = new Matrix(16, 16, U8C1);
+    src.data.fill(200);
+    const dst = new Matrix(16, 16, U8C1);
+    adaptiveThreshold(src, dst, 255, AdaptiveMethod.MEAN, 5, 5);
+    // All pixels are above local mean - constant, so all should be 255
+    // (uniform image: mean = 200, 200 > 200 - 5 = 195 -> true -> 255)
+    for (let i = 0; i < 256; i++) {
+      expect(dst.data[i]).toBe(255);
+    }
+  });
+
+  it('sets all pixels to 0 for uniform dark image with positive constant', () => {
+    const src = new Matrix(16, 16, U8C1);
+    src.data.fill(10);
+    const dst = new Matrix(16, 16, U8C1);
+    // constant = -20 means threshold = mean + 20 = 30, and 10 < 30 -> 0
+    adaptiveThreshold(src, dst, 255, AdaptiveMethod.MEAN, 5, -20);
+    for (let i = 0; i < 256; i++) {
+      expect(dst.data[i]).toBe(0);
+    }
+  });
+
+  it('segments a bimodal image with MEAN method', () => {
+    const src = new Matrix(32, 32, U8C1);
+    // Left half bright (200), right half dark (50)
+    for (let y = 0; y < 32; y++) {
+      for (let x = 0; x < 32; x++) {
+        src.data[y * 32 + x] = x < 16 ? 200 : 50;
+      }
+    }
+    const dst = new Matrix(32, 32, U8C1);
+    adaptiveThreshold(src, dst, 255, AdaptiveMethod.MEAN, 7, 10);
+    // Interior bright pixels should be 255
+    expect(dst.data[8 * 32 + 4]).toBe(255);   // bright region interior
+    // Near the edge, bright-to-dark transition should produce a mix of values
+    // At least some bright-side pixels near border should be 0 (their local mean
+    // is pulled up by neighbors, making them fall below threshold)
+    let hasBrightRegion = false;
+    let hasDarkRegion = false;
+    for (let y = 4; y < 28; y++) {
+      if (dst.data[y * 32 + 4] === 255) hasBrightRegion = true;
+      if (dst.data[y * 32 + 15] === 0 || dst.data[y * 32 + 16] === 0) hasDarkRegion = true;
+    }
+    expect(hasBrightRegion).toBe(true);
+    expect(hasDarkRegion).toBe(true);
+  });
+
+  it('works with GAUSSIAN method', () => {
+    const src = new Matrix(16, 16, U8C1);
+    src.data.fill(128);
+    const dst = new Matrix(16, 16, U8C1);
+    adaptiveThreshold(src, dst, 255, AdaptiveMethod.GAUSSIAN, 5, 5);
+    // Uniform -> all above mean-constant -> all 255
+    for (let i = 0; i < 256; i++) {
+      expect(dst.data[i]).toBe(255);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// warpPerspective
+// ---------------------------------------------------------------------------
+
+describe('warpPerspective', () => {
+  it('identity transform preserves image', () => {
+    const w = 8, h = 8;
+    const src = new Matrix(w, h, U8C1);
+    for (let i = 0; i < 64; i++) src.data[i] = i * 4;
+    const dst = new Matrix(w, h, U8C1);
+    const H = new Matrix(3, 3, F32C1);
+    // Identity: [[1,0,0],[0,1,0],[0,0,1]]
+    H.data[0] = 1; H.data[1] = 0; H.data[2] = 0;
+    H.data[3] = 0; H.data[4] = 1; H.data[5] = 0;
+    H.data[6] = 0; H.data[7] = 0; H.data[8] = 1;
+    warpPerspective(src, dst, H);
+    // Interior pixels (not on the last row/col due to bilinear boundary)
+    for (let y = 0; y < h - 1; y++) {
+      for (let x = 0; x < w - 1; x++) {
+        expect(dst.data[y * w + x]).toBe(src.data[y * w + x]);
+      }
+    }
+  });
+
+  it('translation shifts pixels', () => {
+    const src = new Matrix(16, 16, U8C1);
+    src.data.fill(0);
+    // Draw a 4x4 white square at (4,4)
+    for (let y = 4; y < 8; y++)
+      for (let x = 4; x < 8; x++)
+        src.data[y * 16 + x] = 255;
+    const dst = new Matrix(16, 16, U8C1);
+    const H = new Matrix(3, 3, F32C1);
+    // Backward mapping: dst(dx,dy) <- src(dx-3, dy-2) shifts square right by 3, down by 2
+    H.data[0] = 1; H.data[1] = 0; H.data[2] = -3;
+    H.data[3] = 0; H.data[4] = 1; H.data[5] = -2;
+    H.data[6] = 0; H.data[7] = 0; H.data[8] = 1;
+    warpPerspective(src, dst, H);
+    // Square should now be at (7,6)
+    expect(dst.data[8 * 16 + 9]).toBe(255);  // inside shifted square
+    expect(dst.data[4 * 16 + 4]).toBe(0);    // original position now empty
+  });
+
+  it('fills out-of-bounds with fillValue', () => {
+    const src = new Matrix(4, 4, U8C1);
+    src.data.fill(100);
+    const dst = new Matrix(4, 4, U8C1);
+    const H = new Matrix(3, 3, F32C1);
+    // Large translation -- everything out of bounds
+    H.data[0] = 1; H.data[1] = 0; H.data[2] = 100;
+    H.data[3] = 0; H.data[4] = 1; H.data[5] = 100;
+    H.data[6] = 0; H.data[7] = 0; H.data[8] = 1;
+    warpPerspective(src, dst, H, 42);
+    for (let i = 0; i < 16; i++) {
+      expect(dst.data[i]).toBe(42);
+    }
+  });
+
+  it('matches warpAffine for affine transforms', () => {
+    const src = new Matrix(16, 16, U8C1);
+    for (let i = 0; i < 256; i++) src.data[i] = (i * 7) & 255;
+    const dstA = new Matrix(16, 16, U8C1);
+    const dstP = new Matrix(16, 16, U8C1);
+    // 2x3 affine: scale by 0.5
+    const A = new Matrix(3, 3, F32C1);
+    A.data[0] = 0.5; A.data[1] = 0; A.data[2] = 0;
+    A.data[3] = 0; A.data[4] = 0.5; A.data[5] = 0;
+    A.data[6] = 0; A.data[7] = 0; A.data[8] = 0;
+    warpAffine(src, dstA, A, 0);
+    // Same as 3x3 homography with H[8]=1
+    const H = new Matrix(3, 3, F32C1);
+    H.data[0] = 0.5; H.data[1] = 0; H.data[2] = 0;
+    H.data[3] = 0; H.data[4] = 0.5; H.data[5] = 0;
+    H.data[6] = 0; H.data[7] = 0; H.data[8] = 1;
+    warpPerspective(src, dstP, H, 0);
+    for (let i = 0; i < 256; i++) {
+      expect(Math.abs(dstA.data[i] - dstP.data[i])).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findContours
+// ---------------------------------------------------------------------------
+
+describe('findContours', () => {
+  it('returns empty array for blank image', () => {
+    const src = new Matrix(16, 16, U8C1);
+    src.data.fill(0);
+    const contours = findContours(src);
+    expect(contours).toHaveLength(0);
+  });
+
+  it('finds a single rectangle', () => {
+    const src = new Matrix(32, 32, U8C1);
+    src.data.fill(0);
+    // Draw a filled white rectangle from (5,5) to (20,15)
+    for (let y = 5; y <= 15; y++)
+      for (let x = 5; x <= 20; x++)
+        src.data[y * 32 + x] = 255;
+    const contours = findContours(src);
+    expect(contours.length).toBeGreaterThanOrEqual(1);
+    const c = contours[0];
+    expect(c.points.length).toBeGreaterThan(4);
+    expect(c.boundingRect.x).toBeGreaterThanOrEqual(4);
+    expect(c.boundingRect.x).toBeLessThanOrEqual(6);
+    expect(c.boundingRect.width).toBeGreaterThanOrEqual(14);
+    expect(c.area).toBeGreaterThan(100);
+  });
+
+  it('finds two separate rectangles sorted by area', () => {
+    const src = new Matrix(64, 64, U8C1);
+    src.data.fill(0);
+    // Large rect
+    for (let y = 5; y <= 25; y++)
+      for (let x = 5; x <= 30; x++)
+        src.data[y * 64 + x] = 255;
+    // Small rect
+    for (let y = 35; y <= 45; y++)
+      for (let x = 40; x <= 55; x++)
+        src.data[y * 64 + x] = 255;
+    const contours = findContours(src);
+    expect(contours.length).toBeGreaterThanOrEqual(2);
+    // Sorted by area descending
+    expect(contours[0].area).toBeGreaterThanOrEqual(contours[1].area);
+  });
+
+  it('EXTERNAL mode returns only outer contour for nested shapes', () => {
+    const src = new Matrix(32, 32, U8C1);
+    src.data.fill(0);
+    // Outer rectangle
+    for (let y = 2; y <= 28; y++)
+      for (let x = 2; x <= 28; x++)
+        src.data[y * 32 + x] = 255;
+    // Inner hole (set to 0)
+    for (let y = 8; y <= 22; y++)
+      for (let x = 8; x <= 22; x++)
+        src.data[y * 32 + x] = 0;
+    const external = findContours(src, ContourMode.EXTERNAL);
+    const all = findContours(src, ContourMode.LIST);
+    expect(external.length).toBeLessThanOrEqual(all.length);
+    expect(external.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// approxPoly
+// ---------------------------------------------------------------------------
+
+describe('approxPoly', () => {
+  it('simplifies a rectangle contour to ~4 points', () => {
+    const src = new Matrix(32, 32, U8C1);
+    src.data.fill(0);
+    for (let y = 5; y <= 25; y++)
+      for (let x = 5; x <= 25; x++)
+        src.data[y * 32 + x] = 255;
+    const contours = findContours(src);
+    expect(contours.length).toBeGreaterThanOrEqual(1);
+    const simplified = approxPoly(contours[0], contours[0].perimeter * 0.04);
+    expect(simplified.length).toBeGreaterThanOrEqual(4);
+    expect(simplified.length).toBeLessThanOrEqual(6);
+  });
+
+  it('returns fewer points with larger epsilon', () => {
+    const src = new Matrix(32, 32, U8C1);
+    src.data.fill(0);
+    for (let y = 5; y <= 25; y++)
+      for (let x = 5; x <= 25; x++)
+        src.data[y * 32 + x] = 255;
+    const contours = findContours(src);
+    const fine = approxPoly(contours[0], 1);
+    const coarse = approxPoly(contours[0], contours[0].perimeter * 0.1);
+    expect(coarse.length).toBeLessThanOrEqual(fine.length);
   });
 });
