@@ -127,3 +127,15 @@ along the edge (not toward center), and the median filters out internal edge hit
 
 **Reverting to the original edge-perpendicular refinement.**
 
+
+## [RUN_8_RESULTS]
+- **32 pass / 16 fail** (50px threshold)
+- N=8, LIFE=2/3
+- Change: merged Scharr gradient magnitude with Canny edges before morph
+- Improvement: +4 passes (28→32), no regressions visible
+- Scharr produces broader edge responses at card borders, improving morph blob shape
+- Morph density thumbnail (right panel) shows cleaner, more defined card shape
+- Note: morph step now takes 15.5ms (was 7ms) due to Scharr computation
+- IMPROVEMENT confirmed: 28→32 passes
+- **COMMIT and GAIN 1 LIFE → LIFE=3/3**
+

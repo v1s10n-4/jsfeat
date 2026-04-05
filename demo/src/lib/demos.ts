@@ -1971,6 +1971,7 @@ let _cardParams: Record<string, any> = {};
 let _cardGray: Matrix | null = null;
 let _cardBlurred: Matrix | null = null;
 let _cardEdges: Matrix | null = null;
+let _cardScharr: Matrix | null = null;
 let _cardDebugInfo: string = '';
 // Temporal smoothing for stable bounding box
 let _cardSmoothedCorners: { x: number; y: number }[] | null = null;
@@ -2146,8 +2147,18 @@ const cardDetectionDemo: DemoDefinition = {
     _cardGray!.data.set(_cardEdges!.data);
     const ed = _cardEdges!.data;
 
-    // Always morph: box blur connects nearby edges into solid blobs.
-    // Adaptive threshold scales with scene complexity.
+    // Also add Scharr gradient magnitude to strengthen card border edges.
+    // Scharr produces broader, stronger responses at card borders than Canny alone.
+    if (!_cardScharr) _cardScharr = new Matrix(w, h, S32C2);
+    _cardScharr.resize(w, h, 2);
+    scharrDerivatives(_cardBlurred!, _cardScharr);
+    const sd = _cardScharr.data;
+    for (let i = 0; i < w * h; i++) {
+      const mag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
+      if (mag > 30) ed[i] = 255; // merge strong gradient pixels with Canny edges
+    }
+
+    // Morph: box blur connects nearby edges into solid blobs.
     boxBlurGray(_cardEdges!, _cardBlurred!, 4);
     const bd = _cardBlurred!.data;
     let densitySum = 0;
@@ -2520,6 +2531,7 @@ const cardDetectionDemo: DemoDefinition = {
     _cardGray = null;
     _cardBlurred = null;
     _cardEdges = null;
+    _cardScharr = null;
     _cardSmoothedCorners = null;
     _cardGraceFrames = 0;
     _cardPrevThreshold = 0;
