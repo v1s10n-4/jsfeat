@@ -1,11 +1,14 @@
 import { useRef, useEffect } from 'react';
 import { getCardDebugBuffers } from '@/lib/demos';
 
+// Labels match the FINAL buffer state after process() runs:
+// _cardGray = Canny edges (saved before morph overwrites _cardEdges)
+// _cardBlurred = morph density (box blur of edge map)
+// _cardEdges = morph mask (thresholded density — matches debug frame)
 const STAGES = [
-  { id: 'gray', label: 'Grayscale', color: false },
-  { id: 'blurred', label: 'Blurred', color: false },
-  { id: 'canny', label: 'Canny', color: false },
-  { id: 'edges', label: 'Morph', color: true },
+  { id: 'gray', label: 'Canny Edges', color: false },
+  { id: 'blurred', label: 'Morph Density', color: false },
+  { id: 'edges', label: 'Morph Mask', color: true },
 ] as const;
 
 interface PipelineStagesProps {
@@ -21,8 +24,11 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
     const bufs = getCardDebugBuffers();
     if (!bufs.gray) return;
 
+    // Use actual buffer dimensions (Matrix.cols/rows), fall back to props
+    const bufW = bufs.gray.cols || width;
+    const bufH = bufs.gray.rows || height;
     const thumbW = 160;
-    const thumbH = Math.round(thumbW * height / width) || 90;
+    const thumbH = Math.round(thumbW * bufH / bufW) || 90;
 
     for (let si = 0; si < STAGES.length; si++) {
       const canvas = canvasRefs.current[si];
@@ -44,12 +50,12 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
 
       const imgData = ctx.createImageData(thumbW, thumbH);
       const px = imgData.data;
-      const scaleX = width / thumbW;
-      const scaleY = height / thumbH;
+      const scaleX = bufW / thumbW;
+      const scaleY = bufH / thumbH;
 
       for (let y = 0; y < thumbH; y++) {
         for (let x = 0; x < thumbW; x++) {
-          const srcIdx = (Math.floor(y * scaleY) * width + Math.floor(x * scaleX));
+          const srcIdx = (Math.floor(y * scaleY) * bufW + Math.floor(x * scaleX));
           const dstIdx = (y * thumbW + x) * 4;
           const v = srcData[srcIdx] ?? 0;
 

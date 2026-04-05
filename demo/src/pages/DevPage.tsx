@@ -222,8 +222,8 @@ export default function DevPage() {
           />
         </div>
 
-        {/* Sidebar — flex-[2], no scroll */}
-        <div className="flex-[2] min-w-0 flex flex-col gap-3 overflow-hidden">
+        {/* Sidebar — flex-[2], scrolls independently */}
+        <div className="flex-[2] min-w-0 flex flex-col gap-3 overflow-y-auto">
           <PipelineStages
             width={canvasWidth}
             height={canvasHeight}
@@ -242,8 +242,8 @@ export default function DevPage() {
         </div>
       </div>
 
-      {/* Bottom: TestImageStrip — fixed height, no grow */}
-      <div className="flex-shrink-0">
+      {/* Bottom: TestImageStrip — fixed min height so thumbnails aren't cropped */}
+      <div className="flex-shrink-0 min-h-[130px]">
       <TestImageStrip
         selectedImage={selectedImage}
         onSelectImage={handleSelectImage}
