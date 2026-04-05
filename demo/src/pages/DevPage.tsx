@@ -222,8 +222,8 @@ export default function DevPage() {
           />
         </div>
 
-        {/* Sidebar — flex-[2] */}
-        <div className="flex-[2] min-w-0 flex flex-col gap-4 overflow-y-auto">
+        {/* Sidebar — flex-[2], no scroll */}
+        <div className="flex-[2] min-w-0 flex flex-col gap-3 overflow-hidden">
           <PipelineStages
             width={canvasWidth}
             height={canvasHeight}

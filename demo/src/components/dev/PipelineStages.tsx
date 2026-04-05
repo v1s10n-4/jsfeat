@@ -70,18 +70,20 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
   }, [renderTick, width, height]);
 
   return (
-    <div className="space-y-2">
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pipeline Stages</h3>
-      {STAGES.map((stage, i) => (
-        <div key={stage.id}>
-          <div className="text-[10px] text-muted-foreground mb-0.5">{stage.label}</div>
-          <canvas
-            ref={(el) => { canvasRefs.current[i] = el; }}
-            className="w-full border border-border/50 rounded"
-            style={{ imageRendering: 'pixelated' }}
-          />
-        </div>
-      ))}
+    <div>
+      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Pipeline Stages</h3>
+      <div className="grid grid-cols-2 gap-1">
+        {STAGES.map((stage, i) => (
+          <div key={stage.id}>
+            <div className="text-[9px] text-muted-foreground">{stage.label}</div>
+            <canvas
+              ref={(el) => { canvasRefs.current[i] = el; }}
+              className="w-full border border-border/50 rounded"
+              style={{ imageRendering: 'pixelated' }}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
