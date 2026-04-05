@@ -312,21 +312,38 @@ export const testImages: TestImage[] = [
 export const testCategories = [...new Set(testImages.map((i) => i.category))];
 
 /** Compute mean corner distance (pixels) between detected and ground truth quads. */
+/**
+ * Compute mean corner distance (pixels) between detected and ground truth quads.
+ * Tries all 4 rotations of the detected corners and picks the best match,
+ * since sortCorners may assign TL/TR/BR/BL differently for rotated cards.
+ */
 export function computeAccuracy(
   detected: { x: number; y: number }[],
   truth: GroundTruth,
   scale: number = 1,
 ): { meanDist: number; maxDist: number; perCorner: number[] } {
-  const perCorner: number[] = [];
-  let sum = 0;
-  let max = 0;
-  for (let i = 0; i < 4; i++) {
-    const dx = detected[i].x / scale - truth.corners[i].x;
-    const dy = detected[i].y / scale - truth.corners[i].y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-    perCorner.push(dist);
-    sum += dist;
-    if (dist > max) max = dist;
+  let bestMean = Infinity;
+  let bestResult = { meanDist: Infinity, maxDist: Infinity, perCorner: [0, 0, 0, 0] };
+
+  for (let rotation = 0; rotation < 4; rotation++) {
+    const perCorner: number[] = [];
+    let sum = 0;
+    let max = 0;
+    for (let i = 0; i < 4; i++) {
+      const di = (i + rotation) % 4;
+      const dx = detected[di].x / scale - truth.corners[i].x;
+      const dy = detected[di].y / scale - truth.corners[i].y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      perCorner.push(dist);
+      sum += dist;
+      if (dist > max) max = dist;
+    }
+    const mean = sum / 4;
+    if (mean < bestMean) {
+      bestMean = mean;
+      bestResult = { meanDist: mean, maxDist: max, perCorner };
+    }
   }
-  return { meanDist: sum / 4, maxDist: max, perCorner };
+
+  return bestResult;
 }
