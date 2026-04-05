@@ -96,6 +96,25 @@ export default function DetectionPanel({
               <MetricRow label="MorphThr" value={metrics.morphThreshold.toFixed(1)} />
               <MetricRow label="Quality" value={metrics.qualityScore.toFixed(2)} />
             </div>
+            {metrics.accuracy && (
+              <div className="mt-1">
+                <div className="text-[9px] text-muted-foreground">Accuracy (vs ground truth)</div>
+                <div className="flex gap-3 text-[10px] font-mono">
+                  <span>mean: <span className={metrics.accuracy.meanDist < 20 ? 'text-green-400' : metrics.accuracy.meanDist < 50 ? 'text-yellow-400' : 'text-red-400'}>{metrics.accuracy.meanDist.toFixed(1)}px</span></span>
+                  <span>max: {metrics.accuracy.maxDist.toFixed(1)}px</span>
+                </div>
+              </div>
+            )}
+            {metrics.corners && (
+              <div className="mt-1">
+                <div className="text-[9px] text-muted-foreground">Corners (TL TR BR BL)</div>
+                <div className="flex flex-wrap gap-x-2 text-[9px] font-mono">
+                  {metrics.corners.map((c, i) => (
+                    <span key={i}>({Math.round(c.x)},{Math.round(c.y)})</span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <p className="text-[10px] text-muted-foreground italic">No metrics yet.</p>

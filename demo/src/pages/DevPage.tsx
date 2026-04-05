@@ -3,7 +3,8 @@ import DebugCanvas, { type DetectionMetrics } from '@/components/dev/DebugCanvas
 import PipelineStages from '@/components/dev/PipelineStages';
 import DetectionPanel, { DEFAULT_PARAMS } from '@/components/dev/DetectionPanel';
 import TestImageStrip, { type Verdict } from '@/components/dev/TestImageStrip';
-import { testImages } from '@/lib/test-manifest';
+import { testImages, computeAccuracy } from '@/lib/test-manifest';
+import type { GroundTruth } from '@/lib/test-manifest';
 import { cardDetectionDemo } from '@/lib/demos';
 import { useWebcam } from '@/hooks/useWebcam';
 import { Switch } from '@/components/ui/switch';
@@ -62,6 +63,7 @@ export default function DevPage() {
   );
   const [frozen, setFrozen] = useState(false);
   const [params, setParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS });
+  const [scale, setScale] = useState(1);
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
   const [renderTick, setRenderTick] = useState(0);
   const [verdicts, setVerdicts] = useState<Record<string, Verdict>>(loadVerdicts);
@@ -70,6 +72,13 @@ export default function DevPage() {
 
   // Latest metrics ref used by handleRunAll without stale closure issues
   const latestMetricsRef = useRef<DetectionMetrics | null>(null);
+
+  // Ground truth for selected image
+  const currentGroundTruth: GroundTruth | null = selectedImage
+    ? (testImages.find((img) => img.path === selectedImage)?.groundTruth ?? null)
+    : null;
+  const currentGroundTruthRef = useRef(currentGroundTruth);
+  useEffect(() => { currentGroundTruthRef.current = currentGroundTruth; }, [currentGroundTruth]);
 
   const { videoRef, start, stop, isActive } = useWebcam();
 
@@ -112,10 +121,14 @@ export default function DevPage() {
   // Metrics update — also bumps renderTick so PipelineStages refreshes
   // -------------------------------------------------------------------------
   const handleMetricsUpdate = useCallback((m: DetectionMetrics) => {
+    const gt = currentGroundTruthRef.current;
+    if (m.corners && m.corners.length === 4 && gt) {
+      m.accuracy = computeAccuracy(m.corners, gt, scale);
+    }
     latestMetricsRef.current = m;
     setMetrics(m);
     setRenderTick((t) => t + 1);
-  }, []);
+  }, [scale]);
 
   // -------------------------------------------------------------------------
   // Verdict + notes
@@ -206,6 +219,16 @@ export default function DevPage() {
       <div className="flex items-center gap-4 flex-wrap">
         <h1 className="text-xl font-bold">Detection Debug Workbench</h1>
 
+        <select
+          className="h-7 rounded border border-border bg-background px-2 text-xs"
+          value={scale}
+          onChange={(e) => setScale(Number(e.target.value))}
+        >
+          <option value={1}>1920x1080</option>
+          <option value={0.5}>960x540</option>
+          <option value={0.33}>640x360</option>
+        </select>
+
         <div className="flex items-center gap-2 ml-auto">
           <Switch
             id="webcam-toggle"
@@ -245,6 +268,8 @@ export default function DevPage() {
             frozen={frozen}
             params={params}
             onMetricsUpdate={handleMetricsUpdate}
+            scale={scale}
+            groundTruth={currentGroundTruth}
           />
         </div>
 

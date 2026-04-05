@@ -11,6 +11,7 @@ import { cardDetectionDemo, getCardDebugBuffers, setCardPipelineOverlays } from 
 import { useProfiler } from '@/hooks/useProfiler';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import type { GroundTruth } from '@/lib/test-manifest';
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -25,6 +26,7 @@ export interface DetectionMetrics {
   morphThreshold: number;
   qualityScore: number;
   corners: { x: number; y: number }[] | null;
+  accuracy: { meanDist: number; maxDist: number; perCorner: number[] } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +50,8 @@ interface DebugCanvasProps {
   onProcessingComplete?: () => void;
   /** Scale factor for test images (1 = original, 0.5 = half, etc.). */
   scale?: number;
+  /** Ground truth corners for the current image (if annotated). */
+  groundTruth?: GroundTruth | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +111,7 @@ export default function DebugCanvas({
   onMetricsUpdate,
   onProcessingComplete,
   scale,
+  groundTruth,
 }: DebugCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -116,6 +121,7 @@ export default function DebugCanvas({
   const [showMorph, setShowMorph] = useState(true);
   const [showContours, setShowContours] = useState(false);
   const [showPipelineOverlays, setShowPipelineOverlays] = useState(true);
+  const [showGroundTruth, setShowGroundTruth] = useState(true);
 
   // RAF handle for cleanup
   const rafRef = useRef<number>(0);
@@ -136,9 +142,11 @@ export default function DebugCanvas({
   const showCannyRef = useRef(showCanny);
   const showMorphRef = useRef(showMorph);
   const showContoursRef = useRef(showContours);
+  const showGroundTruthRef = useRef(showGroundTruth);
   useEffect(() => { showCannyRef.current = showCanny; }, [showCanny]);
   useEffect(() => { showMorphRef.current = showMorph; }, [showMorph]);
   useEffect(() => { showContoursRef.current = showContours; }, [showContours]);
+  useEffect(() => { showGroundTruthRef.current = showGroundTruth; }, [showGroundTruth]);
 
   // ---------------------------------------------------------------------------
   // Pipeline overlay toggle side-effect
@@ -382,7 +390,22 @@ export default function DebugCanvas({
         octx.stroke();
       }
     }
-  }, []);
+
+    // Ground truth overlay (blue dashed)
+    if (showGroundTruthRef.current && groundTruth) {
+      const s = scale ?? 1;
+      octx.strokeStyle = '#3b82f6';
+      octx.lineWidth = 2;
+      octx.setLineDash([8, 4]);
+      octx.beginPath();
+      const gt = groundTruth.corners;
+      octx.moveTo(gt[0].x * s, gt[0].y * s);
+      for (let i = 1; i < 4; i++) octx.lineTo(gt[i].x * s, gt[i].y * s);
+      octx.closePath();
+      octx.stroke();
+      octx.setLineDash([]);
+    }
+  }, [groundTruth, scale]);
 
   // ---------------------------------------------------------------------------
   // Metrics reporter
@@ -406,6 +429,7 @@ export default function DebugCanvas({
         ? (bufs.qualityHistory[bufs.qualityHistory.length - 1] ?? 0)
         : 0,
       corners: bufs.smoothedCorners ? [...bufs.smoothedCorners] : null,
+      accuracy: null,
     });
   }, [onMetricsUpdate]);
 
@@ -457,6 +481,10 @@ export default function DebugCanvas({
           <Label htmlFor="toggle-pipeline-hud" className="text-xs text-white">
             Pipeline HUD
           </Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch id="toggle-gt" checked={showGroundTruth} onCheckedChange={setShowGroundTruth} />
+          <Label htmlFor="toggle-gt" className="text-xs text-blue-400">Ground truth</Label>
         </div>
       </div>
 
