@@ -2260,7 +2260,7 @@ const cardDetectionDemo: DemoDefinition = {
             sides.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
           }
           const maxS = Math.max(...sides), minS = Math.min(...sides);
-          cardCorners = (minS > maxS * 0.5) ? sq : buildCardCorners(br);
+          cardCorners = (minS > maxS * 0.2) ? sq : buildCardCorners(br);
         } else {
           cardCorners = buildCardCorners(br);
         }
