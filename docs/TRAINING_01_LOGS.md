@@ -219,3 +219,19 @@ QUALITY of the approxPoly corners, not which path is used.
 - convex hull + approxPoly still overshoots on complex backgrounds
 - Some images are marginal (pass individually but fail in batch due to canvas differences)
 
+
+## [RUN_11_RESULTS] — GAME OVER
+- **19 pass / 29 fail** — SEVERE REGRESSION (32→19)
+- Change: replaced approxPoly with minimum area rotated bounding box
+- The rotated bounding box of the convex hull is WORSE than approxPoly
+- Reason: the min-area rect encloses the ENTIRE hull tightly, including overshooting edges.
+  ApproxPoly at least tries to find 4 corners that approximate the shape.
+- Reverted immediately.
+- LIFE = 0/3 → TRAINING_GAME_OVER
+
+## TRAINING_GAME_OVER Summary
+- Final best score: 32/48 (67%) at 50px threshold
+- Started at: 16/48 (33%)
+- Net improvement: +16 passes (+100% from baseline)
+- Lives lost: 3 (centroid shrink, Scharr threshold, min-area rect)
+
