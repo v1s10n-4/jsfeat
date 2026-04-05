@@ -36,9 +36,9 @@ export default function DetectionPanel({
   onRetest,
 }: DetectionPanelProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Controls */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             Controls
@@ -69,63 +69,45 @@ export default function DetectionPanel({
         ))}
       </div>
 
-      {/* Detection Metrics */}
-      <div className="space-y-2">
-        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          Detection Metrics
-        </h3>
+      {/* Detection Metrics — compact layout */}
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Metrics</h3>
+          <Button variant="outline" size="xs" onClick={onRetest} className="h-5 text-[9px] px-1.5">Retest</Button>
+        </div>
         {metrics ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] text-muted-foreground">Status</span>
-              <Badge variant={metrics.detected ? 'default' : 'destructive'}>
-                {metrics.detected ? 'Detected' : 'Not Detected'}
+          <>
+            {/* Status + verdict inline */}
+            <div className="flex items-center gap-1.5">
+              <Badge variant={metrics.detected ? 'default' : 'destructive'} className="text-[9px] h-4">
+                {metrics.detected ? 'Detected' : 'No Card'}
               </Badge>
-              <Badge
-                variant="outline"
-                className={
-                  verdict === 'pass' ? 'border-green-500 text-green-400' :
-                  verdict === 'fail' ? 'border-red-500 text-red-400' :
-                  'border-muted text-muted-foreground'
-                }
-              >
-                {verdict === 'pass' ? 'PASS' : verdict === 'fail' ? 'FAIL' : 'UNTESTED'}
+              <Badge variant="outline" className={`text-[9px] h-4 ${verdict === 'pass' ? 'border-green-500 text-green-400' : verdict === 'fail' ? 'border-red-500 text-red-400' : 'border-muted text-muted-foreground'}`}>
+                {verdict === 'pass' ? 'PASS' : verdict === 'fail' ? 'FAIL' : '—'}
               </Badge>
-              <Button variant="outline" size="xs" onClick={onRetest} className="h-5 text-[9px] px-1.5 ml-auto">
-                Retest
-              </Button>
+              {metrics.accuracy && (
+                <span className={`text-[9px] font-mono ml-auto ${metrics.accuracy.meanDist < 20 ? 'text-green-400' : metrics.accuracy.meanDist < 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                  {metrics.accuracy.meanDist.toFixed(1)}px
+                </span>
+              )}
             </div>
-            <div className="font-mono text-[10px] text-muted-foreground break-all leading-relaxed">
-              {metrics.debugInfo}
+            {/* All metrics on two compact rows */}
+            <div className="font-mono text-[9px] text-muted-foreground flex flex-wrap gap-x-3">
+              <span>rf={metrics.rectFill.toFixed(2)}</span>
+              <span>asp={metrics.aspect.toFixed(2)}</span>
+              <span>thr={metrics.morphThreshold.toFixed(0)}</span>
+              <span>q={metrics.qualityScore.toFixed(2)}</span>
+              {metrics.accuracy && <span>max={metrics.accuracy.maxDist.toFixed(0)}px</span>}
             </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-              <MetricRow label="RectFill" value={metrics.rectFill.toFixed(3)} />
-              <MetricRow label="Aspect" value={metrics.aspect.toFixed(3)} />
-              <MetricRow label="MorphThr" value={metrics.morphThreshold.toFixed(1)} />
-              <MetricRow label="Quality" value={metrics.qualityScore.toFixed(2)} />
-            </div>
-            {metrics.accuracy && (
-              <div className="mt-1">
-                <div className="text-[9px] text-muted-foreground">Accuracy (vs ground truth)</div>
-                <div className="flex gap-3 text-[10px] font-mono">
-                  <span>mean: <span className={metrics.accuracy.meanDist < 20 ? 'text-green-400' : metrics.accuracy.meanDist < 50 ? 'text-yellow-400' : 'text-red-400'}>{metrics.accuracy.meanDist.toFixed(1)}px</span></span>
-                  <span>max: {metrics.accuracy.maxDist.toFixed(1)}px</span>
-                </div>
-              </div>
-            )}
+            {/* Corners on one line */}
             {metrics.corners && (
-              <div className="mt-1">
-                <div className="text-[9px] text-muted-foreground">Corners (TL TR BR BL)</div>
-                <div className="flex flex-wrap gap-x-2 text-[9px] font-mono">
-                  {metrics.corners.map((c, i) => (
-                    <span key={i}>({Math.round(c.x)},{Math.round(c.y)})</span>
-                  ))}
-                </div>
+              <div className="font-mono text-[9px] text-muted-foreground">
+                {metrics.corners.map((c, i) => `(${Math.round(c.x)},${Math.round(c.y)})`).join(' ')}
               </div>
             )}
-          </div>
+          </>
         ) : (
-          <p className="text-[10px] text-muted-foreground italic">No metrics yet.</p>
+          <p className="text-[9px] text-muted-foreground italic">No metrics yet.</p>
         )}
       </div>
 
@@ -133,11 +115,3 @@ export default function DetectionPanel({
   );
 }
 
-function MetricRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-[10px] text-muted-foreground">{label}</span>
-      <span className="text-[10px] font-mono text-foreground">{value}</span>
-    </div>
-  );
-}
