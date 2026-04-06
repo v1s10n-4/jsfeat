@@ -34,12 +34,71 @@
    - Internal card edges (art, text) are hit before the card border
    - The scan range is bounded and might not reach the actual border for large overshoots
 
+## Game 2: 32/48 → 35/48 (73%) — continued after Game 1
+
+### What Worked (+3 passes)
+1. **Binary erosion after morph** (+1 pass): Box blur radius 2 + threshold 200 on binary mask shrinks overshooting blob edges.
+2. **Morph box blur radius 4→5** (+1 pass): Slightly larger morph connects more nearby edge fragments into blobs.
+3. **computeAccuracy winding order fix** (+1 pass): Try both CW/CCW winding when matching detected corners to ground truth.
+
+### What Had No Effect
+- Morph threshold mean+3 vs mean+7 (no change)
+- Max contour area 0.25 vs 0.4 (no change)
+- Canny thresholds 15/45 or 10/30 (no change — Gaussian kernel 15 dominates)
+- Aspect ratio filter 0.25 vs 0.35 (no change — aspectMatch filter is stricter)
+- Fallback detection without erosion (no change — contours don't form regardless)
+- Adaptive threshold for morph blob (regression — wrong tool for edge density maps)
+- Multi-epsilon approxPoly selection (no change)
+
+### Accuracy Improvements (no pass change)
+- Edge refinement: wider outward scan (-40 instead of -3), 16 samples instead of 8
+- Line fitting on hull segments with 0.9 factor
+- Photo-39: 56.6→47.5px (now passes)
+- Photo-37: 62.6→42.2px (now passes)
+
+## Game 3: 35/48 → 37/48 (77%) — GAME OVER at N=10
+
+### What Worked (+2 passes)
+1. **Extended edge refinement scan to -40px** (+1 pass, Photo-39): Wider outward scan finds card borders further from detected quad.
+2. **Color-based edge detection** (+1 pass): R-B "warmth" gradient and chroma (max-min RGB) detect card borders invisible in grayscale. Combined with conditional histogram equalization for dark images (mean brightness < 100). Fixed Photo-43/44/45 (dark card on dark wood).
+
+### What Caused Regressions (lost 3 lives)
+1. **Gaussian morph kernel** (-6 passes, -1 life): Gaussian blur instead of box blur for morph produces different blob shapes.
+2. **Blob closing (radius 4, threshold 50)** (-1 pass, -1 life): Too aggressive closing expands existing blobs beyond card borders.
+3. **Gaussian blur kernel 15→11** (-6 passes, -1 life): Smaller blur lets wood grain through, fragments morph blobs. **Kernel 15 is SACRED.**
+4. **Brightness filter on warmth edges** (-2 passes, -1 life): Restricting warmth edges to dark pixels (< 120) kills dark card detection.
+5. **Erosion radius 2→3** (-2 passes, -1 life): Stronger erosion fragments valid blobs.
+
+### What Had No Effect
+- Border-touching filter relaxation (lets in huge background contours that outscore cards)
+- Adaptive threshold segmentation fallback (cards don't segment cleanly from wood)
+- Scharr-based refinement (worse than Canny-based for finding card borders)
+- Gradient-weighted refinement (worse than simple median)
+
+### Key Technical Insights
+1. **Color information is powerful**: R-B warmth and chroma channels detect card borders invisible in grayscale. Critical for dark cards on dark backgrounds.
+2. **Conditional equalization**: Only apply histogram equalization when mean brightness < 100. Higher threshold (120) breaks dark card detection.
+3. **4 "marginal" images**: Every morph parameter change breaks the same 4 images. The morph blob approach has a ceiling at ~37/48.
+4. **Line fitting on hull**: Using all hull points for least-squares line fitting per edge gives better corners than approxPoly alone.
+5. **Edge refinement**: wider outward scan + more samples + median is the optimal strategy. Scharr/weighted approaches are worse.
+6. **Border-touching cards**: Cards near image borders are fundamentally hard — can't relax border filter without letting in background contours.
+
+### Sacred Parameters (DO NOT CHANGE)
+- Scharr magnitude threshold: 30 (Game 1)
+- Gaussian blur kernel: 15 (Game 3)
+- Morph box blur radius: 5 (Game 2)
+- Erosion: box blur radius 2, threshold 200 (Game 2)
+
 ### For Next Training Game
 1. **Don't touch approxPoly** — it's the best available polygon simplification.
 2. **Don't try global shrinkage** — it helps some corners and hurts others.
 3. **Don't replace approxPoly with min-area rect** — catastrophic regression.
-4. **Research needed**: gradient-based line fitting (find 4 dominant lines from Scharr gradients, intersect for corners).
-5. **Research needed**: adaptive morph threshold per-region (higher threshold in areas with more background edges).
+4. **Line fitting on hull is DONE** — implemented, gives good results at 0.9 factor.
+5. **Color-based edge detection is DONE** — warmth + chroma channels implemented and working.
 6. **Always test with Run All before committing** — never trust individual Retest for batch metrics.
-7. **The Scharr threshold at 30 is sacred** — don't change it.
-8. **Start each training iteration by checking the EXACT current score** before making changes.
+7. **Always verify pass threshold is 50px** before Run All.
+8. **Sacred parameters**: Scharr 30, Gaussian kernel 15, morph radius 5, erosion radius 2/threshold 200.
+9. **Start each training iteration by checking the EXACT current score** before making changes.
+10. **The morph blob approach has a ceiling at ~37/48** — further gains need architectural changes.
+11. **Remaining 11 failures**: mostly "Detected but inaccurate" (blob overshoots), a few "No Card" (border-touching or extreme angles).
+12. **Research needed**: Hough line detection, perspective-aware corner refinement, or ML-based detection for the remaining 11.
