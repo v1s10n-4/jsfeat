@@ -2166,22 +2166,40 @@ const cardDetectionDemo: DemoDefinition = {
       if (mag > 30) ed[i] = 255;
     }
 
-    // Color-based edge detection: R-B "warmth" gradient detects
-    // dark card borders (neutral) against warm wood (brown, R>B).
+    // Color-based edge detection using two channels:
+    // 1. R-B "warmth": detects neutral card borders against warm brown wood
+    // 2. Chroma (max-min RGB): detects saturated wood against neutral card borders
     const rgba = imageData.data;
-    const warmBuf = _cardGray!; // reuse as temp
-    const wbd = warmBuf.data;
+    const colorBuf = _cardGray!; // reuse as temp
+    const cbd = colorBuf.data;
+
+    // Pass 1: Warmth (R-B)
     for (let i = 0; i < w * h; i++) {
-      wbd[i] = Math.min(255, Math.max(0, 128 + rgba[i * 4] - rgba[i * 4 + 2]));
+      cbd[i] = Math.min(255, Math.max(0, 128 + rgba[i * 4] - rgba[i * 4 + 2]));
     }
-    gaussianBlur(warmBuf, warmBuf, detKs, 0);
-    scharrDerivatives(warmBuf, _cardScharr);
+    gaussianBlur(colorBuf, colorBuf, detKs, 0);
+    scharrDerivatives(colorBuf, _cardScharr);
     for (let i = 0; i < w * h; i++) {
       const px = i % w, py = (i / w) | 0;
       if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
       const wmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
       if (wmag > 25) ed[i] = 255;
     }
+
+    // Pass 2: Chroma (max-min of RGB) — detects color saturation transitions
+    for (let i = 0; i < w * h; i++) {
+      const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+      cbd[i] = Math.max(r, g, b) - Math.min(r, g, b);
+    }
+    gaussianBlur(colorBuf, colorBuf, detKs, 0);
+    scharrDerivatives(colorBuf, _cardScharr);
+    for (let i = 0; i < w * h; i++) {
+      const px = i % w, py = (i / w) | 0;
+      if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
+      const cmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
+      if (cmag > 30) ed[i] = 255;
+    }
+
     // Restore grayscale Scharr for edge refinement
     scharrDerivatives(_cardBlurred!, _cardScharr);
     // Restore Canny edges for refinement
