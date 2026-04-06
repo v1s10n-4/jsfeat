@@ -205,59 +205,57 @@ export default function DevPage() {
     if (batchRunning) return;
     setBatchRunning(true);
 
-    const nextVerdicts = { ...verdicts };
-    // Create offscreen canvas for direct processing (bypasses React rendering)
-    const offCanvas = document.createElement('canvas');
-    const offCtx = offCanvas.getContext('2d', { willReadFrequently: true })!;
-    const dummyVideo = document.createElement('video');
-    const profilerStub = { start: () => {}, end: () => {}, frameStart: () => {}, frameEnd: () => {} };
-
-    for (const img of testImages) {
-      if (!img.groundTruth) {
-        nextVerdicts[img.path] = 'untested';
-        continue;
-      }
-
-      // Load image directly
-      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-        const el = new Image();
-        el.onload = () => resolve(el);
-        el.onerror = reject;
-        el.src = img.path;
-      });
-
-      const s = scale;
-      const cw = Math.round(image.naturalWidth * s);
-      const ch = Math.round(image.naturalHeight * s);
-      offCanvas.width = cw;
-      offCanvas.height = ch;
-
-      // Reset state, setup, draw, process
-      resetCardTemporalState();
-      cardDetectionDemo.setup(offCanvas, dummyVideo, params);
-      offCtx.drawImage(image, 0, 0, cw, ch);
-      cardDetectionDemo.process(offCtx, dummyVideo, cw, ch, profilerStub as any);
-
-      // Read results directly from buffers
-      const bufs = getCardDebugBuffers();
-      const corners = bufs.smoothedCorners;
-
-      if (!corners || corners.length < 4) {
-        nextVerdicts[img.path] = 'fail';
-      } else {
-        const acc = computeAccuracy(corners, img.groundTruth, s);
-        nextVerdicts[img.path] = acc.meanDist <= accuracyThreshold ? 'pass' : 'fail';
-      }
-
-      // Update display to show progress
-      setSelectedImage(img.path);
+    const numWorkers = Math.min(navigator.hardwareConcurrency || 4, 8);
+    const workers: Worker[] = [];
+    for (let i = 0; i < numWorkers; i++) {
+      workers.push(new Worker(
+        new URL('../workers/detection-worker.ts', import.meta.url),
+        { type: 'module' }
+      ));
     }
 
-    cardDetectionDemo.cleanup();
+    const nextVerdicts = { ...verdicts };
+    let completed = 0;
+    const imageQueue = testImages.filter(img => img.groundTruth).map(img => ({
+      imagePath: img.path,
+      params: { ...params },
+      scale,
+      groundTruth: img.groundTruth,
+      accuracyThreshold,
+    }));
+    const totalImages = imageQueue.length;
+
+    for (const img of testImages) {
+      if (!img.groundTruth) nextVerdicts[img.path] = 'untested';
+    }
+
+    let queueIdx = 0;
+    function dispatchNext(worker: Worker) {
+      if (queueIdx >= imageQueue.length) return;
+      worker.postMessage(imageQueue[queueIdx++]);
+    }
+
+    await new Promise<void>(resolve => {
+      for (const worker of workers) {
+        worker.onmessage = (e: MessageEvent) => {
+          const { imagePath, verdict } = e.data;
+          nextVerdicts[imagePath] = verdict;
+          completed++;
+          if (completed === totalImages) {
+            resolve();
+          } else {
+            dispatchNext(worker);
+          }
+        };
+        dispatchNext(worker);
+      }
+    });
+
+    workers.forEach(w => w.terminate());
     setVerdicts(nextVerdicts);
     saveVerdicts(nextVerdicts);
     setBatchRunning(false);
-  }, [batchRunning, verdicts, accuracyThreshold, scale, params]);
+  }, [batchRunning, verdicts, params, scale, accuracyThreshold]);
 
   // -------------------------------------------------------------------------
   // Derived canvas dimensions (used for PipelineStages)

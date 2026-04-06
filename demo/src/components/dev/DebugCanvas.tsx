@@ -641,10 +641,20 @@ export default function DebugCanvas({
     // Warp preview: show perspective-corrected card in bottom-right
     if (bufs.smoothedCorners && bufs.detected) {
       const c = bufs.smoothedCorners;
-      const cardW = params.warpPreviewSize ?? DETECTION_DEFAULTS.warpPreviewSize;
-      const cardH = Math.round(cardW * 7 / 5); // 5:7 ratio
-      // const cardH = params.warpPreviewSize ?? DETECTION_DEFAULTS.warpPreviewSize;
-      // const cardW = Math.round(cardH * 5 / 7); // 5:7 ratio
+      const cs = coordScale;
+
+      // Detect landscape orientation: top edge longer than left edge = card is sideways
+      const topEdge = Math.sqrt(
+        (c[1].x - c[0].x) ** 2 + (c[1].y - c[0].y) ** 2
+      );
+      const leftEdge = Math.sqrt(
+        (c[3].x - c[0].x) ** 2 + (c[3].y - c[0].y) ** 2
+      );
+      const isLandscape = topEdge > leftEdge * 1.1; // 10% margin to avoid flicker near square
+
+      const previewSize = params.warpPreviewSize ?? DETECTION_DEFAULTS.warpPreviewSize;
+      const cardW = isLandscape ? previewSize : Math.round(previewSize * 5 / 7);
+      const cardH = isLandscape ? Math.round(previewSize * 5 / 7) : previewSize;
 
       const margin = 8;
       const cardX = w - cardW - margin;
