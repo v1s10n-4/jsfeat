@@ -1981,6 +1981,8 @@ const _cardQualityHistory: number[] = [];
 let _cardLastRectFill = 0;
 let _cardLastAspect = 0;
 let _cardShowPipelineOverlays = true;
+let _cardPrevThreshold = 0;
+let _cardLastContours: ReturnType<typeof findContours> = [];
 let _cardLsdSegments: LineSegment[] = [];
 let _cardLsdWinningLines: LineSegment[] = [];
 
@@ -2094,11 +2096,13 @@ function getPerspectiveTransform(
 // LSD-based card quadrilateral detection
 // ---------------------------------------------------------------------------
 
+let _quadDebug = ''; // temporary debug info
 function findCardQuadrilateral(
   segments: LineSegment[],
   w: number,
   h: number,
 ): { x: number; y: number }[] | null {
+  _quadDebug = '';
   const sideMargin = w * 0.03;
   const topMargin = h * 0.03;
   const bottomMargin = h * 0.18; // exclude MacBook bezel / desk edge
@@ -2111,6 +2115,7 @@ function findCardQuadrilateral(
            // Reject very long segments (desk edges, MacBook frame)
            s.length < Math.sqrt(w * w + h * h) * 0.35;
   });
+  _quadDebug = `in=${segments.length} filt=${filtered.length}`;
   if (filtered.length < 4) return null;
   segments = filtered;
 
@@ -2169,6 +2174,10 @@ function findCardQuadrilateral(
     }
   }
 
+  _quadDebug += ` grps=${groups.length} perp=${group1 && group2 ? 'Y' : 'N'}`;
+  if (group1 && group2) {
+    _quadDebug += ` g1=${group1.segments.length}@${(group1.meanAngle * 180 / Math.PI).toFixed(0)}° g2=${group2.segments.length}@${(group2.meanAngle * 180 / Math.PI).toFixed(0)}°`;
+  }
   if (!group1 || !group2) return null;
 
   const MAX_PER_GROUP = 15;
@@ -2222,7 +2231,7 @@ function findCardQuadrilateral(
           // Rectangularity: opposite sides must be roughly parallel and equal
           const parallelRatio0 = Math.min(sides[0], sides[2]) / Math.max(sides[0], sides[2]);
           const parallelRatio1 = Math.min(sides[1], sides[3]) / Math.max(sides[1], sides[3]);
-          if (parallelRatio0 < 0.3 || parallelRatio1 < 0.3) continue; // opposite sides too different
+          if (parallelRatio0 < 0.2 || parallelRatio1 < 0.2) continue; // opposite sides too different
 
           // Check angles at corners are roughly 90° (dot product near 0)
           let minAngleCos = 1;
@@ -2241,7 +2250,7 @@ function findCardQuadrilateral(
             const v1x = p.x-q.x, v1y = p.y-q.y, v2x = r.x-q.x, v2y = r.y-q.y;
             return Math.abs((v1x*v2x+v1y*v2y) / ((Math.sqrt(v1x*v1x+v1y*v1y)||1) * (Math.sqrt(v2x*v2x+v2y*v2y)||1)));
           }));
-          if (maxCosAngle > 0.65) continue; // allow up to ~50° deviation from right angle
+          if (maxCosAngle > 0.75) continue; // allow up to ~41° deviation from right angle
 
           const aspect = Math.min(
             (sides[0] + sides[2]) / 2,
@@ -2356,47 +2365,135 @@ const cardDetectionDemo: DemoDefinition = {
     gaussianBlur(_cardGray, _cardBlurred!, detKs, 0);
     profiler.end('blur');
 
-    profiler.start('lsd');
-    const minLen = _cardParams.lsdMinLength ?? 40;
+    // ===================================================================
+    // STAGE 1: Morph blob to find rough card region
+    // ===================================================================
+    profiler.start('canny');
+    cannyEdges(_cardBlurred!, _cardEdges!, 20, 60);
+    profiler.end('canny');
+
+    profiler.start('morph');
+    const ed = _cardEdges!.data;
+    // Scharr gradient merge
+    scharrDerivatives(_cardBlurred!, _cardScharr!);
+    const sd = _cardScharr!.data;
+    for (let i = 0; i < w * h; i++) {
+      const mag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
+      if (mag > 30) ed[i] = 255;
+    }
+    // Warmth + Chroma edge merge
     const rgba = imageData.data;
-    const allSegments: LineSegment[] = [];
-
-    // Use lighter blur for LSD (preserves card border gradients)
-    const lsdKs = Math.max(ks, 9) | 1;
-
-    // Channel 1: Grayscale (lighter blur for sharper card edges)
-    gaussianBlur(_cardGray!, _cardEdges!, lsdKs, 0);
-    scharrDerivatives(_cardEdges!, _cardScharr!);
-    const graySegs = detectLineSegments(_cardScharr!, minLen, 5);
-    allSegments.push(...graySegs);
-
-    // Channel 2: Warmth (R-B)
-    const cbd = _cardEdges!.data;
+    const colorBuf = _cardGray!;
+    const cbd = colorBuf.data;
     for (let i = 0; i < w * h; i++) {
       cbd[i] = Math.min(255, Math.max(0, 128 + rgba[i * 4] - rgba[i * 4 + 2]));
     }
-    gaussianBlur(_cardEdges!, _cardEdges!, lsdKs, 0);
-    scharrDerivatives(_cardEdges!, _cardScharr!);
-    const warmSegs = detectLineSegments(_cardScharr!, minLen, 5);
-    allSegments.push(...warmSegs);
-
-    // Channel 3: Chroma (max-min RGB)
+    gaussianBlur(colorBuf, colorBuf, detKs, 0);
+    scharrDerivatives(colorBuf, _cardScharr);
+    for (let i = 0; i < w * h; i++) {
+      const px = i % w, py = (i / w) | 0;
+      if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
+      const wmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
+      if (wmag > 25) ed[i] = 255;
+    }
     for (let i = 0; i < w * h; i++) {
       const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
       cbd[i] = Math.max(r, g, b) - Math.min(r, g, b);
     }
-    gaussianBlur(_cardEdges!, _cardEdges!, lsdKs, 0);
-    scharrDerivatives(_cardEdges!, _cardScharr!);
-    const chromaSegs = detectLineSegments(_cardScharr!, minLen, 5);
-    allSegments.push(...chromaSegs);
+    gaussianBlur(colorBuf, colorBuf, detKs, 0);
+    scharrDerivatives(colorBuf, _cardScharr);
+    for (let i = 0; i < w * h; i++) {
+      const px = i % w, py = (i / w) | 0;
+      if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
+      const cmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
+      if (cmag > 30) ed[i] = 255;
+    }
+    // Restore grayscale Scharr
+    scharrDerivatives(_cardBlurred!, _cardScharr!);
+    _cardGray!.data.set(_cardEdges!.data);
+    // Morph blob
+    boxBlurGray(_cardEdges!, _cardBlurred!, 5);
+    const bd = _cardBlurred!.data;
+    let densitySum = 0;
+    for (let i = 0; i < w * h; i++) densitySum += bd[i];
+    const meanDensity = densitySum / (w * h);
+    const rawThresh = Math.max(8, meanDensity + 7);
+    _cardPrevThreshold = _cardPrevThreshold > 0 ? _cardPrevThreshold * 0.7 + rawThresh * 0.3 : rawThresh;
+    for (let i = 0; i < w * h; i++) ed[i] = bd[i] > _cardPrevThreshold ? 255 : 0;
+    // Erosion
+    boxBlurGray(_cardEdges!, _cardBlurred!, 2);
+    for (let i = 0; i < w * h; i++) ed[i] = bd[i] > 200 ? 255 : 0;
+    profiler.end('morph');
 
-    allSegments.sort((a, b) => b.length - a.length);
-    const mergedSegments = allSegments.slice(0, 300);
+    // Find largest card-like contour for ROI
+    const contours = findContours(_cardEdges!);
+    _cardLastContours = contours;
+    let roiRect: { x: number; y: number; width: number; height: number } | null = null;
+    const minArea = Math.max(_cardParams.minContourArea ?? 1000, w * h * 0.03);
+    for (const contour of contours) {
+      if (contour.area < minArea || contour.area > w * h * 0.4) continue;
+      const br = contour.boundingRect;
+      if (br.x <= 3 || br.y <= 3 || br.x + br.width >= w - 3 || br.y + br.height >= h - 3) continue;
+      const aspect = Math.min(br.width, br.height) / Math.max(br.width, br.height);
+      if (aspect < 0.3) continue;
+      if (!roiRect || contour.area > (roiRect.width * roiRect.height)) {
+        roiRect = br;
+      }
+    }
+
+    // ===================================================================
+    // STAGE 2: LSD within ROI (or full image if no ROI)
+    // ===================================================================
+    profiler.start('lsd');
+    const minLen = _cardParams.lsdMinLength ?? 40;
+    const allSegments: LineSegment[] = [];
+    const lsdKs = Math.max(ks, 9) | 1;
+
+    // Multi-channel LSD
+    gaussianBlur(_cardGray!, _cardEdges!, lsdKs, 0);
+    scharrDerivatives(_cardEdges!, _cardScharr!);
+    allSegments.push(...detectLineSegments(_cardScharr!, minLen, 5));
+
+    for (let i = 0; i < w * h; i++) {
+      cbd[i] = Math.min(255, Math.max(0, 128 + rgba[i * 4] - rgba[i * 4 + 2]));
+    }
+    gaussianBlur(colorBuf, colorBuf, lsdKs, 0);
+    scharrDerivatives(colorBuf, _cardScharr);
+    allSegments.push(...detectLineSegments(_cardScharr!, minLen, 5));
+
+    for (let i = 0; i < w * h; i++) {
+      const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
+      cbd[i] = Math.max(r, g, b) - Math.min(r, g, b);
+    }
+    gaussianBlur(colorBuf, colorBuf, lsdKs, 0);
+    scharrDerivatives(colorBuf, _cardScharr);
+    allSegments.push(...detectLineSegments(_cardScharr!, minLen, 5));
+
+    // Filter segments to ROI (expanded 30%) if available
+    let mergedSegments: LineSegment[];
+    if (roiRect) {
+      const expand = 0.3;
+      const ex = roiRect.width * expand, ey = roiRect.height * expand;
+      const rx0 = Math.max(0, roiRect.x - ex);
+      const ry0 = Math.max(0, roiRect.y - ey);
+      const rx1 = Math.min(w, roiRect.x + roiRect.width + ex);
+      const ry1 = Math.min(h, roiRect.y + roiRect.height + ey);
+      const roiFiltered = allSegments.filter(s => {
+        const mx = (s.x1 + s.x2) / 2, my = (s.y1 + s.y2) / 2;
+        return mx >= rx0 && mx <= rx1 && my >= ry0 && my <= ry1;
+      });
+      mergedSegments = roiFiltered.sort((a, b) => b.length - a.length).slice(0, 200);
+    } else {
+      mergedSegments = allSegments.sort((a, b) => b.length - a.length).slice(0, 300);
+    }
     _cardLsdSegments = mergedSegments;
 
     scharrDerivatives(_cardBlurred!, _cardScharr!);
     profiler.end('lsd');
 
+    // ===================================================================
+    // STAGE 3: Quad grouping from filtered LSD segments
+    // ===================================================================
     profiler.start('quad');
     let detected = false;
     let cardCorners: { x: number; y: number }[] = [];
@@ -2407,7 +2504,91 @@ const cardDetectionDemo: DemoDefinition = {
     if (quadResult) {
       detected = true;
       cardCorners = quadResult;
-      _cardDebugInfo = `segs=${mergedSegments.length} g=${graySegs.length} w=${warmSegs.length} c=${chromaSegs.length}`;
+      _cardDebugInfo = `LSD roi=${roiRect ? 'Y' : 'N'} segs=${mergedSegments.length}`;
+    }
+
+    // FALLBACK: If LSD quad grouping fails, use morph blob contour + approxPoly
+    // This preserves the 37/48 baseline from the morph blob approach.
+    if (!detected) {
+      const minArea2 = Math.max(_cardParams.minContourArea ?? 1000, w * h * 0.03);
+      let bestScore = 0;
+      for (const contour of _cardLastContours) {
+        if (contour.area < minArea2 || contour.area > w * h * 0.4) continue;
+        const br = contour.boundingRect;
+        if (br.x <= 3 || br.y <= 3 || br.x + br.width >= w - 3 || br.y + br.height >= h - 3) continue;
+        const aspect = Math.min(br.width, br.height) / Math.max(br.width, br.height);
+        if (aspect < 0.35) continue;
+        const targetAspect = 5 / 7;
+        const aspectMatch = 1 - Math.abs(aspect - targetAspect) * 3;
+        if (aspectMatch < 0) continue;
+
+        // Convex hull + approxPoly (same as master pipeline)
+        const pts = contour.points;
+        const hullPts: { x: number; y: number }[] = [];
+        if (pts.length >= 4) {
+          let startIdx = 0;
+          for (let pi = 1; pi < pts.length; pi++) {
+            if (pts[pi].y > pts[startIdx].y || (pts[pi].y === pts[startIdx].y && pts[pi].x > pts[startIdx].x)) startIdx = pi;
+          }
+          const start = pts[startIdx];
+          const sorted = pts.slice().sort((a2, b2) => {
+            const angA = Math.atan2(a2.y - start.y, a2.x - start.x);
+            const angB = Math.atan2(b2.y - start.y, b2.x - start.x);
+            return angA - angB || ((a2.x - start.x) ** 2 + (a2.y - start.y) ** 2) - ((b2.x - start.x) ** 2 + (b2.y - start.y) ** 2);
+          });
+          for (const p of sorted) {
+            while (hullPts.length >= 2) {
+              const a2 = hullPts[hullPts.length - 2], b2 = hullPts[hullPts.length - 1];
+              if ((b2.x - a2.x) * (p.y - a2.y) - (b2.y - a2.y) * (p.x - a2.x) <= 0) hullPts.pop();
+              else break;
+            }
+            hullPts.push(p);
+          }
+        }
+        const hullContour = hullPts.length >= 4 ? {
+          points: hullPts, area: contour.area,
+          perimeter: hullPts.reduce((sum, p, i2) => { const n = hullPts[(i2 + 1) % hullPts.length]; return sum + Math.sqrt((n.x - p.x) ** 2 + (n.y - p.y) ** 2); }, 0),
+          boundingRect: contour.boundingRect,
+        } : contour;
+
+        let poly = approxPoly(hullContour, hullContour.perimeter * 0.02);
+        for (let ep = 0.04; poly.length > 4 && ep <= 0.15; ep += 0.02) poly = approxPoly(hullContour, hullContour.perimeter * ep);
+        if (poly.length === 5) {
+          let minDist2 = Infinity, mergeIdx = 0;
+          for (let pi = 0; pi < 5; pi++) {
+            const ni = (pi + 1) % 5;
+            const d = (poly[ni].x - poly[pi].x) ** 2 + (poly[ni].y - poly[pi].y) ** 2;
+            if (d < minDist2) { minDist2 = d; mergeIdx = pi; }
+          }
+          const ni = (mergeIdx + 1) % 5;
+          const mid = { x: (poly[mergeIdx].x + poly[ni].x) / 2, y: (poly[mergeIdx].y + poly[ni].y) / 2 };
+          poly = poly.filter((_2, i2) => i2 !== ni).map((p, i2) => i2 === mergeIdx ? mid : p);
+        }
+        if (poly.length < 4) continue;
+
+        const rectFill = contour.area / (br.width * br.height);
+        const ptPenalty = poly.length === 4 ? 1 : 0.7;
+        const score = contour.area * Math.max(0.3, rectFill) * (0.3 + aspectMatch) * ptPenalty;
+        if (score > bestScore) {
+          bestScore = score;
+          detected = true;
+          _cardLastRectFill = rectFill;
+          _cardLastAspect = aspect;
+          if (poly.length === 4) {
+            const sq = sortCorners(poly);
+            const sides2: number[] = [];
+            for (let si2 = 0; si2 < 4; si2++) {
+              const sa = sq[si2], sb = sq[(si2 + 1) % 4];
+              sides2.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
+            }
+            const maxS = Math.max(...sides2), minS = Math.min(...sides2);
+            cardCorners = (minS > maxS * 0.2) ? sq : buildCardCorners(br);
+          } else {
+            cardCorners = buildCardCorners(br);
+          }
+          _cardDebugInfo = `MORPH a=${contour.area} asp=${aspect.toFixed(2)} rf=${rectFill.toFixed(2)}`;
+        }
+      }
     }
     profiler.end('quad');
 
@@ -2448,7 +2629,7 @@ const cardDetectionDemo: DemoDefinition = {
         ctx.fillText(`Card detected | ${_cardDebugInfo}`, 6, h - 8);
       } else {
         ctx.fillStyle = '#f00';
-        ctx.fillText(`No card found | segs=${mergedSegments.length}`, 6, h - 8);
+        ctx.fillText(`No card found | segs=${mergedSegments.length} | ${_quadDebug}`, 6, h - 8);
       }
 
       // Draw detected quad
@@ -2542,6 +2723,7 @@ const cardDetectionDemo: DemoDefinition = {
 export function resetCardTemporalState() {
   _cardSmoothedCorners = null;
   _cardGraceFrames = 0;
+  _cardPrevThreshold = 0;
   _cardQualityHistory.length = 0;
   _cardLsdSegments = [];
   _cardLsdWinningLines = [];
