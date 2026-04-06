@@ -341,12 +341,15 @@ export default function DebugCanvas({
         return;
       }
 
-      // Resize canvas if video dimensions changed (e.g. after stream starts)
-      if (v.videoWidth > 0 && (c.width !== v.videoWidth || c.height !== v.videoHeight)) {
-        c.width = v.videoWidth;
-        c.height = v.videoHeight;
+      // Resize canvas if video dimensions changed, applying scale
+      const s = scale ?? 1;
+      const targetW = Math.round(v.videoWidth * s);
+      const targetH = Math.round(v.videoHeight * s);
+      if (v.videoWidth > 0 && (c.width !== targetW || c.height !== targetH)) {
+        c.width = targetW;
+        c.height = targetH;
         const oc = overlayCanvasRef.current;
-        if (oc) { oc.width = v.videoWidth; oc.height = v.videoHeight; }
+        if (oc) { oc.width = targetW; oc.height = targetH; }
       }
 
       if (v.readyState < 2) {
@@ -378,7 +381,7 @@ export default function DebugCanvas({
       setupDoneRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isWebcam, videoRef]);
+  }, [isWebcam, videoRef, scale]);
 
   // ---------------------------------------------------------------------------
   // Cleanup on unmount
