@@ -277,11 +277,9 @@ export default function DevPage() {
           value={scale}
           onChange={(e) => setScale(Number(e.target.value))}
         >
-          <option value={1}>100%</option>
-          <option value={0.75}>75%</option>
-          <option value={0.5}>50%</option>
-          <option value={0.33}>33%</option>
-          <option value={0.25}>25%</option>
+          <option value={1}>1920x1080</option>
+          <option value={0.5}>960x540</option>
+          <option value={0.33}>640x360</option>
         </select>
 
         <div className="flex items-center gap-2 ml-auto">
