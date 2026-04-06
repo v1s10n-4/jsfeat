@@ -1,3 +1,4 @@
+import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select.tsx';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import DebugCanvas, { type DetectionMetrics, type CornerTuple } from '@/components/dev/DebugCanvas';
 import PipelineStages from '@/components/dev/PipelineStages';
@@ -47,6 +48,7 @@ export default function DevPage() {
   );
   const [frozen, setFrozen] = useState(false);
   const [params, setParams] = useState<Record<string, number>>({ ...DETECTION_DEFAULTS });
+  const [overlays, setOverlays] = useState({ canny: true, morph: true, contours: false, groundTruth: true });
   const [scale, setScale] = useState(1);
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
   const [renderTick, setRenderTick] = useState(0);
@@ -99,7 +101,9 @@ export default function DevPage() {
   const handleParamChange = useCallback((key: string, value: number) => {
     setParams((prev) => ({ ...prev, [key]: value }));
     cardDetectionDemo.onParamChange?.(key, value);
-  }, []);
+    // Auto-retest on control change for static images
+    if (!isWebcam) setRetestTick((t) => t + 1);
+  }, [isWebcam]);
 
   // -------------------------------------------------------------------------
   // Reset params
@@ -265,80 +269,13 @@ export default function DevPage() {
   // Render
   // -------------------------------------------------------------------------
   return (
-    <div className="flex flex-col gap-3 p-4 h-[calc(100vh-48px)] overflow-hidden">
+    <div className="flex flex-col gap-3 p-4 overflow-hidden">
       {/* Hidden video element for webcam */}
       <video ref={videoRef} className="hidden" playsInline muted />
-
-      {/* Header */}
-      <div className="flex items-center gap-4 flex-wrap">
-        <h1 className="text-xl font-bold">Detection Debug Workbench</h1>
-
-        <select
-          className="h-7 rounded border border-border bg-background px-2 text-xs"
-          value={scale}
-          onChange={(e) => setScale(Number(e.target.value))}
-        >
-          {[100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(pct => (
-            <option key={pct} value={pct / 100}>{pct}%</option>
-          ))}
-        </select>
-
-        <div className="flex items-center gap-2 ml-auto">
-          <Switch
-            id="annotate-toggle"
-            checked={annotationMode}
-            onCheckedChange={setAnnotationMode}
-          />
-          <Label htmlFor="annotate-toggle" className="text-sm">
-            Annotate
-          </Label>
-        </div>
-
-        {annotationMode && Object.keys(annotationEdits).length > 0 && (
-          <div className="relative">
-            <Button variant="outline" size="sm" onClick={handleExportAnnotations}>
-              Export Annotations ({Object.keys(annotationEdits).length})
-            </Button>
-            {exportToast && (
-              <span className="absolute -bottom-6 left-0 text-xs text-green-400 whitespace-nowrap">
-                Copied to clipboard
-              </span>
-            )}
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <Switch
-            id="webcam-toggle"
-            checked={isWebcam}
-            onCheckedChange={handleWebcamToggle}
-          />
-          <Label htmlFor="webcam-toggle" className="text-sm">
-            Webcam
-          </Label>
-        </div>
-
-        {isActive && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setFrozen((f) => !f)}
-          >
-            {frozen ? 'Unfreeze' : 'Freeze'}
-          </Button>
-        )}
-      </div>
-
       {/* Main area: canvas left, sidebar right — fills remaining height */}
-      <div className="flex gap-4 flex-1 min-h-0 overflow-hidden">
+      <div className="flex gap-4 flex-col sm:flex-row overflow-hidden">
         {/* DebugCanvas — flex-[3], constrained to available height */}
         <div className="flex-[3] min-w-0 overflow-hidden flex flex-col">
-          {/* Current image label */}
-          {selectedImage && !isWebcam && (
-            <div className="text-xs font-mono text-muted-foreground mb-1 truncate">
-              {selectedImage.replace('/test-images/', '')}
-            </div>
-          )}
           <DebugCanvas
             imageSrc={isWebcam ? null : selectedImage}
             videoRef={videoRef}
@@ -352,16 +289,98 @@ export default function DevPage() {
             annotationMode={annotationMode}
             onAnnotationUpdate={handleAnnotationUpdate}
             retestTick={retestTick}
+            overlays={overlays}
           />
         </div>
 
         {/* Sidebar — flex-[2], scrolls independently */}
         <div className="flex-[2] min-w-0 flex flex-col gap-3 overflow-y-auto">
+          <div className="flex items-center gap-4 flex-wrap">
+            {!isWebcam && <>
+                <div className="flex items-center gap-2">
+                    <Switch
+                        id="annotate-toggle"
+                        checked={annotationMode}
+                        onCheckedChange={setAnnotationMode}
+                    />
+                    <Label htmlFor="annotate-toggle" className="text-sm">
+                        Annotate
+                    </Label>
+                </div>
+
+              {annotationMode && Object.keys(annotationEdits).length > 0 && (
+                <div className="relative">
+                  <Button variant="outline" size="sm" onClick={handleExportAnnotations}>
+                    Export Annotations ({Object.keys(annotationEdits).length})
+                  </Button>
+                  {exportToast && (
+                    <span className="absolute -bottom-6 left-0 text-xs text-green-400 whitespace-nowrap">
+                Copied to clipboard
+              </span>
+                  )}
+                </div>
+              )}
+
+            </>}
+
+            <div className="flex items-center gap-2">
+              <Switch
+                id="webcam-toggle"
+                checked={isWebcam}
+                onCheckedChange={handleWebcamToggle}
+              />
+              <Label htmlFor="webcam-toggle" className="text-sm">
+                Webcam
+              </Label>
+            </div>
+
+            {isActive && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setFrozen((f) => !f)}
+              >
+                {frozen ? 'Unfreeze' : 'Freeze'}
+              </Button>
+            )}
+          </div>
+
           <PipelineStages
             width={canvasWidth}
             height={canvasHeight}
             renderTick={renderTick}
           />
+          {/* Overlay toggles */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <Select defaultValue={100} onValueChange={newValue => setScale((newValue || 100) / 100)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Scale"  /> %
+              </SelectTrigger>
+              <SelectContent>
+                {[100, 90, 80, 70, 60, 50, 40, 30, 20, 10].map(pct => (
+                  <SelectItem key={pct} value={pct}>{pct}%</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex items-center gap-1.5">
+              <Switch id="ov-canny" checked={overlays.canny} onCheckedChange={v => setOverlays(o => ({ ...o, canny: v }))} />
+              <Label htmlFor="ov-canny" className="text-xs text-red-400">Canny</Label>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Switch id="ov-morph" checked={overlays.morph} onCheckedChange={v => setOverlays(o => ({ ...o, morph: v }))} />
+              <Label htmlFor="ov-morph" className="text-xs text-yellow-400">Morph</Label>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Switch id="ov-contours" checked={overlays.contours} onCheckedChange={v => setOverlays(o => ({ ...o, contours: v }))} />
+              <Label htmlFor="ov-contours" className="text-xs text-cyan-400">Contours</Label>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Switch id="ov-gt" checked={overlays.groundTruth} onCheckedChange={v => setOverlays(o => ({ ...o, groundTruth: v }))} />
+              <Label htmlFor="ov-gt" className="text-xs text-blue-400">Solution</Label>
+            </div>
+          </div>
+
+
           <DetectionPanel
             params={params}
             onParamChange={handleParamChange}
@@ -373,7 +392,7 @@ export default function DevPage() {
       </div>
 
       {/* Bottom: TestImageStrip */}
-      <div className="flex-shrink-0">
+      {/*<div className="flex-shrink-0">*/}
       <TestImageStrip
         selectedImage={selectedImage}
         onSelectImage={handleSelectImage}
@@ -400,7 +419,7 @@ export default function DevPage() {
           }, 500);
         }}
       />
-      </div>
+      {/*</div>*/}
     </div>
   );
 }

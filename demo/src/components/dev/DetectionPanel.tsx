@@ -2,8 +2,10 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { useIsMobile } from '@/hooks/useMediaQuery.ts';
 import { DETECTION_DEFAULTS, MAIN_SLIDERS, ADVANCED_SLIDERS } from '@/lib/detection-constants';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { CogIcon } from 'lucide-react';
 import type { DetectionMetrics } from './DebugCanvas';
 
 export const DEFAULT_PARAMS: Record<string, number> = { ...DETECTION_DEFAULTS };
@@ -23,6 +25,7 @@ export default function DetectionPanel({
   metrics,
   verdict,
 }: DetectionPanelProps) {
+  const isMobile = useIsMobile();
   return (
     <div className="space-y-3">
       {/* Detection Metrics — compact layout */}
@@ -39,25 +42,15 @@ export default function DetectionPanel({
                 {verdict === 'pass' ? 'PASS' : verdict === 'fail' ? 'FAIL' : '—'}
               </Badge>
               {metrics.accuracy && (
-                <span className={`text-xs font-mono ml-auto ${metrics.accuracy.meanDist < 20 ? 'text-green-400' : metrics.accuracy.meanDist < 50 ? 'text-yellow-400' : 'text-red-400'}`}>
-                  {metrics.accuracy.meanDist.toFixed(1)}px
+                <span className={`text-xs font-mono ${metrics.accuracy.meanDist < 20 ? 'text-green-400' : metrics.accuracy.meanDist < 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                [{metrics.accuracy.meanDist.toFixed(1)}px]
                 </span>
               )}
+            {/* Metrics values — single line, no wrap */}
+            <div className="font-mono ml-auto text-xs text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis">
+              rf={metrics.rectFill.toFixed(2)}  asp={metrics.aspect.toFixed(2)}  thr={metrics.morphThreshold.toFixed(0)}  q={metrics.qualityScore.toFixed(2)}{metrics.accuracy ? `  max=${metrics.accuracy.maxDist.toFixed(0)}px` : ''}
             </div>
-            {/* All metrics on two compact rows */}
-            <div className="font-mono text-xs text-muted-foreground flex flex-wrap gap-x-3">
-              <span>rf={metrics.rectFill.toFixed(2)}</span>
-              <span>asp={metrics.aspect.toFixed(2)}</span>
-              <span>thr={metrics.morphThreshold.toFixed(0)}</span>
-              <span>q={metrics.qualityScore.toFixed(2)}</span>
-              {metrics.accuracy && <span>max={metrics.accuracy.maxDist.toFixed(0)}px</span>}
             </div>
-            {/* Corners on one line */}
-            {metrics.corners && (
-              <div className="font-mono text-xs text-muted-foreground">
-                {metrics.corners.map((c) => `(${Math.round(c.x)},${Math.round(c.y)})`).join(' ')}
-              </div>
-            )}
           </>
         ) : (
           <p className="text-xs text-muted-foreground italic">No metrics yet.</p>
@@ -91,16 +84,17 @@ export default function DetectionPanel({
 
         {/* Advanced Settings Sheet */}
         <Sheet modal={false}>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="sm" className="w-full mt-2">
-              ⚙ Advanced Settings
+
+          <SheetTrigger render={
+            <Button variant="outline" className="w-full">
+              <CogIcon/> Advanced Settings
             </Button>
-          </SheetTrigger>
-          <SheetContent side="right" className="overflow-y-auto w-80">
+          }/>
+          <SheetContent noOverlay side={isMobile ? "bottom" : "right"} className="px-4 py-2 flex w-80">
             <SheetHeader>
               <SheetTitle>Advanced Detection Settings</SheetTitle>
             </SheetHeader>
-            <div className="space-y-4 mt-4">
+            <div className="overflow-y-auto h-full">
               {ADVANCED_SLIDERS.map(({ section, sliders }) => (
                 <div key={section}>
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">{section}</h4>
@@ -120,10 +114,10 @@ export default function DetectionPanel({
                   </div>
                 </div>
               ))}
-              <Button variant="outline" size="sm" className="w-full" onClick={onResetParams}>
+            </div>
+              <Button variant="outline" className="w-full mt-auto" onClick={onResetParams}>
                 Reset All to Defaults
               </Button>
-            </div>
           </SheetContent>
         </Sheet>
       </div>

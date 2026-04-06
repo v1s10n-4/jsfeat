@@ -1,5 +1,4 @@
 import { testImages, testCategories } from '@/lib/test-manifest';
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
@@ -69,18 +68,18 @@ export default function TestImageStrip({
           {failCount} fail
         </Badge>
         <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="sm" onClick={onRetest}>
+          <Button variant="outline" onClick={onRetest}>
             Retest
           </Button>
-          <Button onClick={onRunAll} disabled={running} variant="default" size="sm">
+          <Button onClick={onRunAll} disabled={running} variant="default">
             {running ? 'Running\u2026' : 'Run All'}
           </Button>
         </div>
       </div>
 
       {/* Horizontal scroll strip */}
-      <ScrollArea className="w-full whitespace-nowrap rounded-md border border-border/50">
-        <div className="flex gap-4 px-2 py-3">
+      {/*<ScrollArea className="w-full whitespace-nowrap rounded-md border border-border/50">*/}
+        <div className="flex flex-wrap gap-4 px-2 py-3">
           {testCategories.map((category) => {
             const categoryImages = testImages.filter((img) => img.category === category);
             return (
@@ -88,7 +87,7 @@ export default function TestImageStrip({
                 <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   {category}
                 </span>
-                <div className="flex gap-1.5">
+                <div className="flex gap-1.5 flex-wrap">
                   {categoryImages.map((img) => {
                     const verdict: Verdict = verdicts[img.path] ?? 'untested';
                     const isSelected = selectedImage === img.path;
@@ -156,8 +155,8 @@ export default function TestImageStrip({
             );
           })}
         </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
+        {/*<ScrollBar orientation="horizontal" />*/}
+      {/*</ScrollArea>*/}
     </div>
   );
 }

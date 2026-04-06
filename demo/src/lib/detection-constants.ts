@@ -50,6 +50,11 @@ export const DETECTION_DEFAULTS = {
   graceFrames: 12,
   persistenceDistance: 100,
   persistenceBoost: 1.5,
+
+  // Display / debug overlay
+  debugFontSize: 22,
+  warpPreviewSize: 300,
+  qualityChartWidth: 140,
 } as const;
 
 export type DetectionParamKey = keyof typeof DETECTION_DEFAULTS;
@@ -57,9 +62,9 @@ export type DetectionParams = Record<DetectionParamKey, number>;
 
 /** Slider definitions for the main controls panel (2-col grid, always visible). */
 export const MAIN_SLIDERS: { key: DetectionParamKey; label: string; min: number; max: number; step: number }[] = [
-  { key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 21, step: 2 },
   { key: 'cannyLow', label: 'Canny Low', min: 5, max: 100, step: 1 },
   { key: 'cannyHigh', label: 'Canny High', min: 20, max: 250, step: 1 },
+  { key: 'blurKernel', label: 'Blur Kernel', min: 3, max: 21, step: 2 },
   { key: 'minContourArea', label: 'Min Area', min: 200, max: 50000, step: 100 },
   { key: 'morphRadius', label: 'Morph Radius', min: 2, max: 12, step: 1 },
   { key: 'erosionRadius', label: 'Erosion Radius', min: 1, max: 5, step: 1 },
@@ -113,6 +118,14 @@ export const ADVANCED_SLIDERS: { section: string; sliders: { key: DetectionParam
       { key: 'smoothingFactor', label: 'Smoothing', min: 0.1, max: 0.95, step: 0.05 },
       { key: 'jumpThreshold', label: 'Jump Thresh', min: 20, max: 200, step: 10 },
       { key: 'graceFrames', label: 'Grace Frames', min: 0, max: 30, step: 1 },
+    ],
+  },
+  {
+    section: 'Display',
+    sliders: [
+      { key: 'debugFontSize', label: 'Debug Font Size', min: 10, max: 28, step: 1 },
+      { key: 'warpPreviewSize', label: 'Card Preview Width', min: 80, max: 600, step: 10 },
+      { key: 'qualityChartWidth', label: 'Quality Chart Width', min: 60, max: 200, step: 10 },
     ],
   },
 ];

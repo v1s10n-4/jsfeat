@@ -6,11 +6,10 @@
  * stacked overlay canvas.
  */
 
+import { DETECTION_DEFAULTS } from '@/lib/detection-constants.ts';
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { cardDetectionDemo, getCardDebugBuffers, resetCardTemporalState } from '@/lib/demos';
 import { useProfiler } from '@/hooks/useProfiler';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import type { GroundTruth } from '@/lib/test-manifest';
 
 // ---------------------------------------------------------------------------
@@ -51,7 +50,7 @@ interface DebugCanvasProps {
   /** When true, freeze frame processing. */
   frozen: boolean;
   /** Detection pipeline parameter overrides. */
-  params: Record<string, unknown>;
+  params: Record<string, number | null>;
   /** Called each processed frame with updated metrics. */
   onMetricsUpdate?: (metrics: DetectionMetrics) => void;
   /** Called when static image processing completes (for batch Run All). */
@@ -66,6 +65,13 @@ interface DebugCanvasProps {
   retestTick?: number;
   /** Called whenever annotation corners are updated. */
   onAnnotationUpdate?: (corners: CornerTuple) => void;
+  /** Overlay visibility toggles (controlled from parent). */
+  overlays?: {
+    canny: boolean;
+    morph: boolean;
+    contours: boolean;
+    groundTruth: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +151,7 @@ export default function DebugCanvas({
   annotationMode,
   onAnnotationUpdate,
   retestTick,
+  overlays,
 }: DebugCanvasProps) {
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -153,10 +160,15 @@ export default function DebugCanvas({
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Overlay toggles
-  const [showCanny, setShowCanny] = useState(true);
-  const [showMorph, setShowMorph] = useState(true);
-  const [showContours, setShowContours] = useState(false);
-  const [showGroundTruth, setShowGroundTruth] = useState(true);
+  // Overlay visibility — use prop if provided, else internal state
+  const [_showCanny, _setShowCanny] = useState(true);
+  const [_showMorph, _setShowMorph] = useState(true);
+  const [_showContours, _setShowContours] = useState(false);
+  const [_showGroundTruth, _setShowGroundTruth] = useState(true);
+  const showCanny = overlays?.canny ?? _showCanny;
+  const showMorph = overlays?.morph ?? _showMorph;
+  const showContours = overlays?.contours ?? _showContours;
+  const showGroundTruth = overlays?.groundTruth ?? _showGroundTruth;
 
   // RAF handle for cleanup
   const rafRef = useRef<number>(0);
@@ -629,10 +641,14 @@ export default function DebugCanvas({
     // Warp preview: show perspective-corrected card in bottom-right
     if (bufs.smoothedCorners && bufs.detected) {
       const c = bufs.smoothedCorners;
-      const cardW = 125, cardH = 175; // preview size (5:7 ratio)
+      const cardW = params.warpPreviewSize ?? DETECTION_DEFAULTS.warpPreviewSize;
+      const cardH = Math.round(cardW * 7 / 5); // 5:7 ratio
+      // const cardH = params.warpPreviewSize ?? DETECTION_DEFAULTS.warpPreviewSize;
+      // const cardW = Math.round(cardH * 5 / 7); // 5:7 ratio
+
       const margin = 8;
       const cardX = w - cardW - margin;
-      const cardY = h - cardH - margin - 20; // 20px for label
+      const cardY = h - cardH - margin - 20;
 
       // Read pixels from the display canvas to do the warp
       const baseCanvas = baseCanvasRef.current;
@@ -680,15 +696,18 @@ export default function DebugCanvas({
               }
             }
 
+            const fontSize = Math.round((params.debugFontSize ?? DETECTION_DEFAULTS.debugFontSize));
+            const labelPadding = 8;
             // Draw background
             ovCtx.fillStyle = 'rgba(0,0,0,0.7)';
-            ovCtx.fillRect(cardX - 2, cardY - 18, cardW + 4, cardH + 22);
+            ovCtx.fillRect(cardX - 2, cardY - (fontSize + labelPadding), cardW + 4, cardH + fontSize);
+
 
             // Draw label
             ovCtx.fillStyle = '#fff';
-            ovCtx.font = '11px monospace';
+            ovCtx.font = `${fontSize}px monospace`;
             ovCtx.textAlign = 'center';
-            ovCtx.fillText('Detected Card', cardX + cardW / 2, cardY - 5);
+            ovCtx.fillText('Detected Card', cardX + cardW / 2, cardY - labelPadding);
 
             // Draw warped card
             ovCtx.putImageData(outImg, cardX, cardY);
@@ -701,19 +720,27 @@ export default function DebugCanvas({
     }
 
     // Status text with background
-    const statusText = (bufs.detected ? 'Card detected' : 'No card found') + (bufs.debugInfo ? ` | ${bufs.debugInfo}` : '');
-    ovCtx.font = '12px monospace';
+    const fontSize = params.debugFontSize ?? DETECTION_DEFAULTS.debugFontSize;
+    const photoName = imageSrc ? imageSrc.replace(/^.*\//, '') : '';
+    const statusLabel = bufs.detected ? 'Card detected' : 'No card found';
+    const debugDetail = bufs.debugInfo ? ` ${bufs.debugInfo}` : '';
+    const statusText = photoName
+      ? `[${photoName}: ${statusLabel}${debugDetail}]`
+      : `${statusLabel}${debugDetail}`;
+    ovCtx.font = `${fontSize}px monospace`;
     const textWidth = ovCtx.measureText(statusText).width;
+    const textH = fontSize + 4;
     ovCtx.fillStyle = 'rgba(0,0,0,0.7)';
-    ovCtx.fillRect(4, h - 22, textWidth + 8, 18);
+    ovCtx.fillRect(4, h - textH - 4, textWidth + 8, textH);
     ovCtx.fillStyle = bufs.detected ? '#0f0' : '#f66';
     ovCtx.textAlign = 'left';
     ovCtx.fillText(statusText, 8, h - 8);
 
-    // Quality chart (fixed 120x24px, top-right)
+    // Quality chart (top-right)
     if (bufs.qualityHistory?.length) {
-      const chartW = Math.min(bufs.qualityHistory.length, 120);
-      const chartH = 24;
+      const maxChartW = params.qualityChartWidth ?? DETECTION_DEFAULTS.qualityChartWidth;
+      const chartW = Math.min(bufs.qualityHistory.length, maxChartW);
+      const chartH = 28;
       const chartX = w - chartW - 8;
       const chartY = 8;
       ovCtx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -853,44 +880,6 @@ export default function DebugCanvas({
 
   return (
     <div className="flex flex-col gap-2 h-full">
-      {/* Overlay toggles */}
-      <div className="flex items-center gap-6 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-canny"
-            checked={showCanny}
-            onCheckedChange={setShowCanny}
-          />
-          <Label htmlFor="toggle-canny" className="text-xs text-red-400">
-            Canny edges
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-morph"
-            checked={showMorph}
-            onCheckedChange={setShowMorph}
-          />
-          <Label htmlFor="toggle-morph" className="text-xs text-yellow-400">
-            Morph blob
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-contours"
-            checked={showContours}
-            onCheckedChange={setShowContours}
-          />
-          <Label htmlFor="toggle-contours" className="text-xs text-cyan-400">
-            Contours
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch id="toggle-gt" checked={showGroundTruth} onCheckedChange={setShowGroundTruth} />
-          <Label htmlFor="toggle-gt" className="text-xs text-blue-400">Ground truth</Label>
-        </div>
-      </div>
-
       {/* Stacked canvases — scales to fit container */}
       <div className="relative flex-1 min-h-0">
         {/* Base canvas: pipeline draws here */}

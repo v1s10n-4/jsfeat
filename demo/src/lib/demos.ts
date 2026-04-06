@@ -2030,6 +2030,7 @@ function buildCardCorners(br: { x: number; y: number; width: number; height: num
  * Solves the 8-parameter homography using simple Gaussian elimination.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+// @ts-ignore
 function getPerspectiveTransform(
   src: { x: number; y: number }[],
   dst: { x: number; y: number }[],
