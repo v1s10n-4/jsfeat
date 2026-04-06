@@ -2,8 +2,7 @@
  * DebugCanvas — dev-only component for the Detection Debug Workbench (Task 4).
  *
  * Renders the card detection pipeline on a canvas and draws toggleable overlays
- * (Canny edges in red, morph blob in yellow, contour outlines in cyan) on a
- * stacked overlay canvas.
+ * (LSD segments in green, winning quad lines in cyan) on a stacked overlay canvas.
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
@@ -80,38 +79,6 @@ function meanBrightness(data: Uint8Array, size: number): number {
   return sum / size;
 }
 
-/**
- * Render a grayscale buffer as a color tinted overlay into an ImageData.
- * Pixels with value > 0 are painted with the given [r, g, b] color at the
- * specified opacity.
- */
-function paintOverlay(
-  src: Uint8Array,
-  dest: Uint8Array,
-  w: number,
-  h: number,
-  r: number,
-  g: number,
-  b: number,
-  alpha: number,
-) {
-  const size = w * h;
-  for (let i = 0; i < size; i++) {
-    const o = i * 4;
-    if (src[i] > 0) {
-      dest[o] = r;
-      dest[o + 1] = g;
-      dest[o + 2] = b;
-      dest[o + 3] = alpha;
-    } else {
-      dest[o] = 0;
-      dest[o + 1] = 0;
-      dest[o + 2] = 0;
-      dest[o + 3] = 0;
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -134,9 +101,7 @@ export default function DebugCanvas({
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Overlay toggles
-  const [showCanny, setShowCanny] = useState(true);
-  const [showMorph, setShowMorph] = useState(true);
-  const [showContours, setShowContours] = useState(false);
+  const [showLsdSegments, setShowLsdSegments] = useState(true);
   const [showPipelineOverlays, setShowPipelineOverlays] = useState(true);
   const [showGroundTruth, setShowGroundTruth] = useState(true);
 
@@ -189,13 +154,9 @@ export default function DebugCanvas({
   }, [groundTruth, imageSrc, annotationMode]);
 
   // Expose refs via stable callbacks so the animation loop can read them
-  const showCannyRef = useRef(showCanny);
-  const showMorphRef = useRef(showMorph);
-  const showContoursRef = useRef(showContours);
+  const showLsdSegmentsRef = useRef(showLsdSegments);
   const showGroundTruthRef = useRef(showGroundTruth);
-  useEffect(() => { showCannyRef.current = showCanny; }, [showCanny]);
-  useEffect(() => { showMorphRef.current = showMorph; }, [showMorph]);
-  useEffect(() => { showContoursRef.current = showContours; }, [showContours]);
+  useEffect(() => { showLsdSegmentsRef.current = showLsdSegments; }, [showLsdSegments]);
   useEffect(() => { showGroundTruthRef.current = showGroundTruth; }, [showGroundTruth]);
 
   // ---------------------------------------------------------------------------
@@ -544,39 +505,29 @@ export default function DebugCanvas({
     octx.clearRect(0, 0, w, h);
 
     const bufs = getCardDebugBuffers();
-    const imgData = octx.createImageData(w, h);
-    const dest = new Uint8Array(imgData.data.buffer);
 
-    // Start with a transparent buffer
-    dest.fill(0);
+    // putImageData with a fresh (all-zeros = transparent) ImageData clears the overlay
+    octx.putImageData(octx.createImageData(w, h), 0, 0);
 
-    // Canny edges overlay (red) — sourced from bufs.gray which the pipeline
-    // overwrites with the original Canny output before morphological close.
-    if (showCannyRef.current && bufs.gray?.data && bufs.gray.data.length >= w * h) {
-      paintOverlay(bufs.gray.data as Uint8Array, dest, w, h, 220, 30, 30, 180);
-    }
-
-    // Morph blob overlay (yellow) — sourced from bufs.edges (post-morph binary)
-    if (showMorphRef.current && bufs.edges?.data && bufs.edges.data.length >= w * h) {
-      // Yellow overwrites red where both are active — intentional (morph is on top)
-      paintOverlay(bufs.edges.data as Uint8Array, dest, w, h, 220, 200, 0, 160);
-    }
-
-    octx.putImageData(imgData, 0, 0);
-
-    // Contour outlines (cyan)
-    if (showContoursRef.current && bufs.contours) {
-      octx.strokeStyle = 'cyan';
+    // LSD Segments overlay
+    if (showLsdSegmentsRef.current && bufs.lsdSegments) {
       octx.lineWidth = 1;
-      for (const contour of bufs.contours) {
-        if (contour.points.length < 3) continue;
+      for (const seg of bufs.lsdSegments) {
+        octx.strokeStyle = 'rgba(0, 255, 0, 0.4)';
         octx.beginPath();
-        octx.moveTo(contour.points[0].x, contour.points[0].y);
-        for (let i = 1; i < contour.points.length; i++) {
-          octx.lineTo(contour.points[i].x, contour.points[i].y);
-        }
-        octx.closePath();
+        octx.moveTo(seg.x1, seg.y1);
+        octx.lineTo(seg.x2, seg.y2);
         octx.stroke();
+      }
+      if (bufs.lsdWinningLines && bufs.lsdWinningLines.length > 0) {
+        octx.lineWidth = 2;
+        octx.strokeStyle = '#00ffff';
+        for (const seg of bufs.lsdWinningLines) {
+          octx.beginPath();
+          octx.moveTo(seg.x1, seg.y1);
+          octx.lineTo(seg.x2, seg.y2);
+          octx.stroke();
+        }
       }
     }
 
@@ -707,34 +658,8 @@ export default function DebugCanvas({
       {/* Overlay toggles */}
       <div className="flex items-center gap-6 flex-wrap">
         <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-canny"
-            checked={showCanny}
-            onCheckedChange={setShowCanny}
-          />
-          <Label htmlFor="toggle-canny" className="text-xs text-red-400">
-            Canny edges
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-morph"
-            checked={showMorph}
-            onCheckedChange={setShowMorph}
-          />
-          <Label htmlFor="toggle-morph" className="text-xs text-yellow-400">
-            Morph blob
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-contours"
-            checked={showContours}
-            onCheckedChange={setShowContours}
-          />
-          <Label htmlFor="toggle-contours" className="text-xs text-cyan-400">
-            Contours
-          </Label>
+          <Switch id="lsd-toggle" checked={showLsdSegments} onCheckedChange={setShowLsdSegments} />
+          <Label htmlFor="lsd-toggle" className="text-sm" style={{ color: '#00ff00' }}>LSD Segments</Label>
         </div>
         <div className="flex items-center gap-2">
           <Switch

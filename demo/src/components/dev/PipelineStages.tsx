@@ -1,14 +1,10 @@
 import { useRef, useEffect } from 'react';
 import { getCardDebugBuffers } from '@/lib/demos';
 
-// Labels match the FINAL buffer state after process() runs:
-// _cardGray = Canny edges (saved before morph overwrites _cardEdges)
-// _cardBlurred = morph density (box blur of edge map)
-// _cardEdges = morph mask (thresholded density — matches debug frame)
 const STAGES = [
-  { id: 'gray', label: 'Canny Edges', color: false },
-  { id: 'blurred', label: 'Morph Density', color: false },
-  { id: 'edges', label: 'Morph Mask', color: true },
+  { id: 'gradient', label: 'Gradient Magnitude' },
+  { id: 'lsd-segments', label: 'LSD Segments' },
+  { id: 'winning-quad', label: 'Winning Quad' },
 ] as const;
 
 interface PipelineStagesProps {
@@ -22,55 +18,81 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
 
   useEffect(() => {
     const bufs = getCardDebugBuffers();
-    if (!bufs.gray) return;
 
-    // Use actual buffer dimensions (Matrix.cols/rows), fall back to props
-    const bufW = bufs.gray.cols || width;
-    const bufH = bufs.gray.rows || height;
+    // Determine thumbnail dimensions from scharr or blurred buffer, fall back to props
+    const refBuf = bufs.scharr ?? bufs.blurred;
+    const bufW = refBuf?.cols || width;
+    const bufH = refBuf?.rows || height;
     const thumbW = 160;
     const thumbH = Math.round(thumbW * bufH / bufW) || 90;
+    const sw = thumbW;
+    const sh = thumbH;
 
     for (let si = 0; si < STAGES.length; si++) {
       const canvas = canvasRefs.current[si];
       if (!canvas) continue;
-      canvas.width = thumbW;
-      canvas.height = thumbH;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) continue;
+      canvas.width = sw;
+      canvas.height = sh;
+      const stageCtx = canvas.getContext('2d');
+      if (!stageCtx) continue;
 
       const stage = STAGES[si];
-      let srcData: ArrayLike<number> | null = null;
+      const imgData = stageCtx.createImageData(sw, sh);
 
-      if (stage.id === 'gray') srcData = bufs.gray?.data ?? null;
-      else if (stage.id === 'blurred') srcData = bufs.blurred?.data ?? null;
-      else if (stage.id === 'edges') srcData = bufs.edges?.data ?? null;
+      // Fill imgData with black (transparent alpha → opaque black for bg stages)
+      for (let i = 3; i < imgData.data.length; i += 4) imgData.data[i] = 255;
 
-      if (!srcData) continue;
-
-      const imgData = ctx.createImageData(thumbW, thumbH);
-      const px = imgData.data;
-      const scaleX = bufW / thumbW;
-      const scaleY = bufH / thumbH;
-
-      for (let y = 0; y < thumbH; y++) {
-        for (let x = 0; x < thumbW; x++) {
-          const srcIdx = (Math.floor(y * scaleY) * bufW + Math.floor(x * scaleX));
-          const dstIdx = (y * thumbW + x) * 4;
-          const v = srcData[srcIdx] ?? 0;
-
-          if (stage.color) {
-            px[dstIdx] = 0;
-            px[dstIdx + 1] = v ? 180 : 20;
-            px[dstIdx + 2] = 0;
-          } else {
-            px[dstIdx] = v;
-            px[dstIdx + 1] = v;
-            px[dstIdx + 2] = v;
+      if (stage.id === 'gradient' && bufs.scharr) {
+        const sd = bufs.scharr.data;
+        const srcW = bufs.scharr.cols;
+        const srcH = bufs.scharr.rows;
+        for (let dy = 0; dy < sh; dy++) {
+          for (let dx = 0; dx < sw; dx++) {
+            const si2 = (Math.floor(dy * srcH / sh) * srcW + Math.floor(dx * srcW / sw));
+            const mag = Math.min(255, (Math.abs(sd[si2 * 2]) + Math.abs(sd[si2 * 2 + 1])) >> 3);
+            const oi = (dy * sw + dx) * 4;
+            imgData.data[oi] = mag; imgData.data[oi + 1] = mag; imgData.data[oi + 2] = mag; imgData.data[oi + 3] = 255;
           }
-          px[dstIdx + 3] = 255;
+        }
+        stageCtx.putImageData(imgData, 0, 0);
+      }
+
+      if (stage.id === 'lsd-segments' && bufs.lsdSegments) {
+        stageCtx.putImageData(imgData, 0, 0); // black bg
+        const srcW = bufs.blurred?.cols ?? 1920;
+        const srcH = bufs.blurred?.rows ?? 1080;
+        const scaleX = sw / srcW, scaleY = sh / srcH;
+        stageCtx.lineWidth = 1;
+        stageCtx.strokeStyle = '#00ff00';
+        for (const seg of bufs.lsdSegments) {
+          stageCtx.beginPath();
+          stageCtx.moveTo(seg.x1 * scaleX, seg.y1 * scaleY);
+          stageCtx.lineTo(seg.x2 * scaleX, seg.y2 * scaleY);
+          stageCtx.stroke();
         }
       }
-      ctx.putImageData(imgData, 0, 0);
+
+      if (stage.id === 'winning-quad' && bufs.smoothedCorners) {
+        stageCtx.putImageData(imgData, 0, 0); // black bg
+        const srcW = bufs.blurred?.cols ?? 1920;
+        const srcH = bufs.blurred?.rows ?? 1080;
+        const scaleX = sw / srcW, scaleY = sh / srcH;
+        stageCtx.strokeStyle = '#00ff00'; stageCtx.lineWidth = 2;
+        stageCtx.beginPath();
+        const c = bufs.smoothedCorners;
+        stageCtx.moveTo(c[0].x * scaleX, c[0].y * scaleY);
+        for (let i = 1; i < 4; i++) stageCtx.lineTo(c[i].x * scaleX, c[i].y * scaleY);
+        stageCtx.closePath();
+        stageCtx.stroke();
+        stageCtx.fillStyle = 'rgba(0, 255, 0, 0.15)';
+        stageCtx.fill();
+        stageCtx.fillStyle = '#ff0';
+        for (const p of c) {
+          stageCtx.beginPath();
+          stageCtx.arc(p.x * scaleX, p.y * scaleY, 3, 0, Math.PI * 2);
+          stageCtx.fill();
+        }
+      }
     }
   }, [renderTick, width, height]);
 
