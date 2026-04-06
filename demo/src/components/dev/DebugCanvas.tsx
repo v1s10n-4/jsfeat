@@ -80,38 +80,6 @@ function meanBrightness(data: Uint8Array, size: number): number {
   return sum / size;
 }
 
-/**
- * Render a grayscale buffer as a color tinted overlay into an ImageData.
- * Pixels with value > 0 are painted with the given [r, g, b] color at the
- * specified opacity.
- */
-function paintOverlay(
-  src: Uint8Array,
-  dest: Uint8Array,
-  w: number,
-  h: number,
-  r: number,
-  g: number,
-  b: number,
-  alpha: number,
-) {
-  const size = w * h;
-  for (let i = 0; i < size; i++) {
-    const o = i * 4;
-    if (src[i] > 0) {
-      dest[o] = r;
-      dest[o + 1] = g;
-      dest[o + 2] = b;
-      dest[o + 3] = alpha;
-    } else {
-      dest[o] = 0;
-      dest[o + 1] = 0;
-      dest[o + 2] = 0;
-      dest[o + 3] = 0;
-    }
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -133,11 +101,13 @@ export default function DebugCanvas({
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
 
+  // Offscreen canvas for processing at scaled resolution
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   // Overlay toggles
   const [showCanny, setShowCanny] = useState(true);
   const [showMorph, setShowMorph] = useState(true);
   const [showContours, setShowContours] = useState(false);
-  const [showPipelineOverlays, setShowPipelineOverlays] = useState(true);
   const [showGroundTruth, setShowGroundTruth] = useState(true);
 
   // RAF handle for cleanup
@@ -198,53 +168,18 @@ export default function DebugCanvas({
   useEffect(() => { showContoursRef.current = showContours; }, [showContours]);
   useEffect(() => { showGroundTruthRef.current = showGroundTruth; }, [showGroundTruth]);
 
-  // ---------------------------------------------------------------------------
-  // Pipeline overlay toggle side-effect
-  // ---------------------------------------------------------------------------
-  useEffect(() => {
-    // Re-run static image processing when the toggle changes
-    if (!isWebcam && imageSrcRef.current) {
-      const canvas = baseCanvasRef.current;
-      if (!canvas) return;
-
-      const img = new Image();
-      img.onload = () => {
-        const s = scale ?? 1;
-        const canvasW = Math.round(img.naturalWidth * s);
-        const canvasH = Math.round(img.naturalHeight * s);
-        canvas.width = canvasW;
-        canvas.height = canvasH;
-
-        const overlayCanvas = overlayCanvasRef.current;
-        if (overlayCanvas) {
-          overlayCanvas.width = canvasW;
-          overlayCanvas.height = canvasH;
-        }
-
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        if (!ctx) return;
-
-        if (!dummyVideoRef.current) {
-          dummyVideoRef.current = document.createElement('video');
-        }
-        const dummy = dummyVideoRef.current;
-
-        cardDetectionDemo.setup(canvas, dummy, params);
-        setupDoneRef.current = true;
-
-        ctx.drawImage(img, 0, 0, canvasW, canvasH);
-
-        profiler.frameStart();
-        cardDetectionDemo.process(ctx, dummy, canvasW, canvasH, profiler);
-        profiler.frameEnd();
-
-        drawOverlays(canvasW, canvasH);
-        reportMetrics(canvasW * canvasH);
-      };
-      img.src = imageSrcRef.current;
+  /** Lazily create / resize the offscreen processing canvas. */
+  function getOffscreenCanvas(w: number, h: number): HTMLCanvasElement {
+    if (!offscreenCanvasRef.current) {
+      offscreenCanvasRef.current = document.createElement('canvas');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showPipelineOverlays]);
+    const oc = offscreenCanvasRef.current;
+    if (oc.width !== w || oc.height !== h) {
+      oc.width = w;
+      oc.height = h;
+    }
+    return oc;
+  }
 
   // ---------------------------------------------------------------------------
   // Load static image → draw to base canvas and run once
@@ -258,19 +193,28 @@ export default function DebugCanvas({
     const img = new Image();
     img.onload = () => {
       const s = scale ?? 1;
-      const canvasW = Math.round(img.naturalWidth * s);
-      const canvasH = Math.round(img.naturalHeight * s);
-      canvas.width = canvasW;
-      canvas.height = canvasH;
+      const fullW = img.naturalWidth;
+      const fullH = img.naturalHeight;
 
+      // Display canvas at full resolution
+      canvas.width = fullW;
+      canvas.height = fullH;
       const overlayCanvas = overlayCanvasRef.current;
       if (overlayCanvas) {
-        overlayCanvas.width = canvasW;
-        overlayCanvas.height = canvasH;
+        overlayCanvas.width = fullW;
+        overlayCanvas.height = fullH;
       }
 
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return;
+      // Offscreen at scaled resolution
+      const procW = Math.round(fullW * s);
+      const procH = Math.round(fullH * s);
+      const offscreen = getOffscreenCanvas(procW, procH);
+      const offCtx = offscreen.getContext('2d', { willReadFrequently: true })!;
+
+      // Draw to display (full) and offscreen (scaled)
+      const displayCtx = canvas.getContext('2d', { willReadFrequently: true })!;
+      displayCtx.drawImage(img, 0, 0, fullW, fullH);
+      offCtx.drawImage(img, 0, 0, procW, procH);
 
       // Ensure dummy video exists
       if (!dummyVideoRef.current) {
@@ -278,18 +222,17 @@ export default function DebugCanvas({
       }
       const dummy = dummyVideoRef.current;
 
-      resetCardTemporalState(); // Clear smoothed corners, grace period from previous image
-      cardDetectionDemo.setup(canvas, dummy, params);
+      // Process on offscreen
+      resetCardTemporalState();
+      cardDetectionDemo.setup(offscreen, dummy, params);
       setupDoneRef.current = true;
 
-      ctx.drawImage(img, 0, 0, canvasW, canvasH);
-
       profiler.frameStart();
-      cardDetectionDemo.process(ctx, dummy, canvasW, canvasH, profiler);
+      cardDetectionDemo.process(offCtx, dummy, procW, procH, profiler);
       profiler.frameEnd();
 
-      drawOverlays(canvasW, canvasH);
-      reportMetrics(canvasW * canvasH);
+      drawOverlays(fullW, fullH, 1 / s);
+      reportMetrics(procW * procH);
       onProcessingComplete?.();
     };
     img.src = imageSrc;
@@ -311,16 +254,16 @@ export default function DebugCanvas({
   useEffect(() => {
     if (!isWebcam) return;
 
-    const canvas = baseCanvasRef.current;
+    const dc = baseCanvasRef.current;
     const video = videoRef.current;
-    if (!canvas || !video) return;
+    if (!dc || !video) return;
 
     // Use a sensible default resolution; the canvas will follow the video's
     // intrinsic dimensions once it starts playing.
     const w = video.videoWidth || 640;
     const h = video.videoHeight || 480;
-    canvas.width = w;
-    canvas.height = h;
+    dc.width = w;
+    dc.height = h;
 
     const overlayCanvas = overlayCanvasRef.current;
     if (overlayCanvas) {
@@ -328,7 +271,12 @@ export default function DebugCanvas({
       overlayCanvas.height = h;
     }
 
-    cardDetectionDemo.setup(canvas, video, params);
+    // Initial setup uses the offscreen canvas at scaled resolution
+    const s0 = scale ?? 1;
+    const initProcW = Math.round(w * s0);
+    const initProcH = Math.round(h * s0);
+    const initOffscreen = getOffscreenCanvas(initProcW, initProcH);
+    cardDetectionDemo.setup(initOffscreen, video, params);
     setupDoneRef.current = true;
 
     function loop() {
@@ -339,15 +287,16 @@ export default function DebugCanvas({
         return;
       }
 
-      // Resize canvas if video dimensions changed, applying scale
       const s = scale ?? 1;
-      const targetW = Math.round(v.videoWidth * s);
-      const targetH = Math.round(v.videoHeight * s);
-      if (v.videoWidth > 0 && (c.width !== targetW || c.height !== targetH)) {
-        c.width = targetW;
-        c.height = targetH;
+      const fullW = v.videoWidth;
+      const fullH = v.videoHeight;
+
+      // Display at full video resolution
+      if (c.width !== fullW || c.height !== fullH) {
+        c.width = fullW;
+        c.height = fullH;
         const oc = overlayCanvasRef.current;
-        if (oc) { oc.width = targetW; oc.height = targetH; }
+        if (oc) { oc.width = fullW; oc.height = fullH; }
       }
 
       if (v.readyState < 2) {
@@ -355,18 +304,22 @@ export default function DebugCanvas({
         return;
       }
 
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      if (!ctx) {
-        rafRef.current = requestAnimationFrame(loop);
-        return;
-      }
+      const procW = Math.round(fullW * s);
+      const procH = Math.round(fullH * s);
+      const offscreen = getOffscreenCanvas(procW, procH);
+      const offCtx = offscreen.getContext('2d', { willReadFrequently: true })!;
+
+      // Draw video to both canvases
+      const displayCtx = c.getContext('2d', { willReadFrequently: true })!;
+      displayCtx.drawImage(v, 0, 0, fullW, fullH);
+      offCtx.drawImage(v, 0, 0, procW, procH);
 
       profiler.frameStart();
-      cardDetectionDemo.process(ctx, v, c.width, c.height, profiler);
+      cardDetectionDemo.process(offCtx, v, procW, procH, profiler);
       profiler.frameEnd();
 
-      drawOverlays(c.width, c.height);
-      reportMetrics(c.width * c.height);
+      drawOverlays(fullW, fullH, 1 / s);
+      reportMetrics(procW * procH);
 
       rafRef.current = requestAnimationFrame(loop);
     }
@@ -401,12 +354,13 @@ export default function DebugCanvas({
     const canvas = baseCanvasRef.current;
     if (!canvas || isWebcam) return null;
     const rect = canvas.getBoundingClientRect();
+    // Display canvas is now at full resolution, so canvas coords = original coords
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     const x = Math.round((e.clientX - rect.left) * scaleX);
     const y = Math.round((e.clientY - rect.top) * scaleY);
     const s = scale ?? 1;
-    return { origX: Math.round(x / s), origY: Math.round(y / s), s };
+    return { origX: x, origY: y, s };
   }
 
   function findNearCorner(origX: number, origY: number, s: number): number | null {
@@ -457,7 +411,7 @@ export default function DebugCanvas({
 
     // Redraw overlays immediately for smooth feedback
     const canvas = baseCanvasRef.current;
-    if (canvas) drawOverlays(canvas.width, canvas.height);
+    if (canvas) drawOverlays(canvas.width, canvas.height, 1 / (scale ?? 1));
   }
 
   function handleMouseUp(_e: React.MouseEvent<HTMLCanvasElement>) {
@@ -535,142 +489,213 @@ export default function DebugCanvas({
   // ---------------------------------------------------------------------------
   // Overlay renderer (reads debug buffers, paints onto overlay canvas)
   // ---------------------------------------------------------------------------
-  const drawOverlays = useCallback((w: number, h: number) => {
+  const drawOverlays = useCallback((w: number, h: number, coordScale: number = 1) => {
     const overlayCanvas = overlayCanvasRef.current;
     if (!overlayCanvas) return;
 
-    const octx = overlayCanvas.getContext('2d');
-    if (!octx) return;
+    const ovCtx = overlayCanvas.getContext('2d');
+    if (!ovCtx) return;
 
-    octx.clearRect(0, 0, w, h);
+    ovCtx.clearRect(0, 0, w, h);
 
     const bufs = getCardDebugBuffers();
-    const imgData = octx.createImageData(w, h);
-    const dest = new Uint8Array(imgData.data.buffer);
 
-    // Start with a transparent buffer
-    dest.fill(0);
-
-    // Canny edges overlay (red) — sourced from bufs.gray which the pipeline
-    // overwrites with the original Canny output before morphological close.
-    if (showCannyRef.current && bufs.gray?.data && bufs.gray.data.length >= w * h) {
-      paintOverlay(bufs.gray.data as Uint8Array, dest, w, h, 220, 30, 30, 180);
+    // Canny edges overlay (red) — buffer is at processing resolution, scale up
+    const bufW = bufs.gray?.cols ?? 0;
+    const bufH = bufs.gray?.rows ?? 0;
+    if (showCannyRef.current && bufs.gray?.data && bufW > 0 && bufH > 0) {
+      const ovImgData = ovCtx.createImageData(w, h);
+      const dest = ovImgData.data;
+      const src = bufs.gray.data as Uint8Array;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const srcX = Math.floor(x * bufW / w);
+          const srcY = Math.floor(y * bufH / h);
+          const v = src[srcY * bufW + srcX];
+          if (v > 0) {
+            const o = (y * w + x) * 4;
+            dest[o] = 220; dest[o + 1] = 30; dest[o + 2] = 30; dest[o + 3] = 180;
+          }
+        }
+      }
+      ovCtx.putImageData(ovImgData, 0, 0);
     }
 
-    // Morph blob overlay (yellow) — sourced from bufs.edges (post-morph binary)
-    if (showMorphRef.current && bufs.edges?.data && bufs.edges.data.length >= w * h) {
-      // Yellow overwrites red where both are active — intentional (morph is on top)
-      paintOverlay(bufs.edges.data as Uint8Array, dest, w, h, 220, 200, 0, 160);
+    // Morph blob overlay (yellow) — buffer is at processing resolution, scale up
+    const edgeBufW = bufs.edges?.cols ?? 0;
+    const edgeBufH = bufs.edges?.rows ?? 0;
+    if (showMorphRef.current && bufs.edges?.data && edgeBufW > 0 && edgeBufH > 0) {
+      const ovImgData = ovCtx.createImageData(w, h);
+      const dest = ovImgData.data;
+      const src = bufs.edges.data as Uint8Array;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const srcX = Math.floor(x * edgeBufW / w);
+          const srcY = Math.floor(y * edgeBufH / h);
+          const v = src[srcY * edgeBufW + srcX];
+          if (v > 0) {
+            const o = (y * w + x) * 4;
+            dest[o] = 220; dest[o + 1] = 200; dest[o + 2] = 0; dest[o + 3] = 160;
+          }
+        }
+      }
+      // Composite on top (yellow overwrites red where both active)
+      ovCtx.putImageData(ovImgData, 0, 0);
     }
 
-    octx.putImageData(imgData, 0, 0);
-
-    // Contour outlines (cyan)
+    // Contour outlines (cyan) — multiply contour points by coordScale
     if (showContoursRef.current && bufs.contours) {
-      octx.strokeStyle = 'cyan';
-      octx.lineWidth = 1;
+      ovCtx.strokeStyle = 'cyan';
+      ovCtx.lineWidth = 1;
       for (const contour of bufs.contours) {
         if (contour.points.length < 3) continue;
-        octx.beginPath();
-        octx.moveTo(contour.points[0].x, contour.points[0].y);
+        ovCtx.beginPath();
+        ovCtx.moveTo(contour.points[0].x * coordScale, contour.points[0].y * coordScale);
         for (let i = 1; i < contour.points.length; i++) {
-          octx.lineTo(contour.points[i].x, contour.points[i].y);
+          ovCtx.lineTo(contour.points[i].x * coordScale, contour.points[i].y * coordScale);
         }
-        octx.closePath();
-        octx.stroke();
+        ovCtx.closePath();
+        ovCtx.stroke();
       }
+    }
+
+    // Detection quad (green frame)
+    if (bufs.smoothedCorners && bufs.detected) {
+      ovCtx.strokeStyle = '#00ff00';
+      ovCtx.lineWidth = 2;
+      ovCtx.beginPath();
+      const c = bufs.smoothedCorners;
+      ovCtx.moveTo(c[0].x * coordScale, c[0].y * coordScale);
+      for (let i = 1; i < 4; i++) ovCtx.lineTo(c[i].x * coordScale, c[i].y * coordScale);
+      ovCtx.closePath();
+      ovCtx.stroke();
+      // Corner dots (fixed 4px radius)
+      ovCtx.fillStyle = '#00ff00';
+      for (const pt of c) {
+        ovCtx.beginPath();
+        ovCtx.arc(pt.x * coordScale, pt.y * coordScale, 4, 0, Math.PI * 2);
+        ovCtx.fill();
+      }
+    }
+
+    // Status text (fixed 12px)
+    ovCtx.font = '12px monospace';
+    ovCtx.textAlign = 'left';
+    ovCtx.fillStyle = bufs.detected ? '#0f0' : '#f66';
+    ovCtx.fillText(
+      (bufs.detected ? 'Card detected' : 'No card found') + (bufs.debugInfo ? ` | ${bufs.debugInfo}` : ''),
+      8, h - 8,
+    );
+
+    // Quality chart (fixed 120x24px, top-right)
+    if (bufs.qualityHistory?.length) {
+      const chartW = Math.min(bufs.qualityHistory.length, 120);
+      const chartH = 24;
+      const chartX = w - chartW - 8;
+      const chartY = 8;
+      ovCtx.fillStyle = 'rgba(0,0,0,0.6)';
+      ovCtx.fillRect(chartX - 1, chartY - 1, chartW + 2, chartH + 12);
+      for (let ci = 0; ci < chartW; ci++) {
+        const val = bufs.qualityHistory[bufs.qualityHistory.length - chartW + ci];
+        const barH = val * chartH;
+        ovCtx.fillStyle = val > 0.35 ? '#0f0' : val > 0.1 ? '#ff0' : '#f00';
+        ovCtx.fillRect(chartX + ci, chartY + chartH - barH, 1, barH);
+      }
+      ovCtx.fillStyle = '#aaa'; ovCtx.font = '8px monospace';
+      const lastQ = bufs.qualityHistory[bufs.qualityHistory.length - 1] ?? 0;
+      ovCtx.fillText(`quality: ${(lastQ * 100).toFixed(0)}%`, chartX, chartY + chartH + 9);
     }
 
     // Annotation overlay (replaces ground truth when in annotation mode)
     if (annotationModeRef.current) {
-      const s = scale ?? 1;
       const corners = annotCornersRef.current;
       const selIdx = selectedCornerRef.current;
       const labels = ['TL', 'TR', 'BR', 'BL'];
 
       // Draw quad connecting the corners (blue dashed)
+      // Annotation corners are in original-image space; display canvas is at full res
       if (corners.length >= 2) {
-        octx.strokeStyle = '#3b82f6';
-        octx.lineWidth = 2;
-        octx.setLineDash([8, 4]);
-        octx.beginPath();
-        octx.moveTo(corners[0].x * s, corners[0].y * s);
+        ovCtx.strokeStyle = '#3b82f6';
+        ovCtx.lineWidth = 2;
+        ovCtx.setLineDash([8, 4]);
+        ovCtx.beginPath();
+        ovCtx.moveTo(corners[0].x, corners[0].y);
         for (let i = 1; i < corners.length; i++) {
-          octx.lineTo(corners[i].x * s, corners[i].y * s);
+          ovCtx.lineTo(corners[i].x, corners[i].y);
         }
-        if (corners.length === 4) octx.closePath();
-        octx.stroke();
-        octx.setLineDash([]);
+        if (corners.length === 4) ovCtx.closePath();
+        ovCtx.stroke();
+        ovCtx.setLineDash([]);
       }
 
       // Draw corner circles and labels
       for (let i = 0; i < corners.length; i++) {
-        const cx = corners[i].x * s;
-        const cy = corners[i].y * s;
+        const cx = corners[i].x;
+        const cy = corners[i].y;
 
         // Circle
-        octx.beginPath();
-        octx.arc(cx, cy, 12, 0, Math.PI * 2);
-        octx.fillStyle = i === selIdx ? '#eab308' : '#3b82f6';
-        octx.fill();
-        octx.strokeStyle = '#ffffff';
-        octx.lineWidth = 2;
-        octx.stroke();
+        ovCtx.beginPath();
+        ovCtx.arc(cx, cy, 12, 0, Math.PI * 2);
+        ovCtx.fillStyle = i === selIdx ? '#eab308' : '#3b82f6';
+        ovCtx.fill();
+        ovCtx.strokeStyle = '#ffffff';
+        ovCtx.lineWidth = 2;
+        ovCtx.stroke();
 
         // Label
-        octx.font = 'bold 12px monospace';
-        octx.fillStyle = '#ffffff';
-        octx.fillText(labels[i], cx + 16, cy + 4);
+        ovCtx.font = 'bold 12px monospace';
+        ovCtx.fillStyle = '#ffffff';
+        ovCtx.fillText(labels[i], cx + 16, cy + 4);
       }
 
       // Instruction text
-      octx.font = '13px sans-serif';
-      octx.fillStyle = 'rgba(255,255,255,0.85)';
-      octx.strokeStyle = 'rgba(0,0,0,0.6)';
-      octx.lineWidth = 3;
+      ovCtx.font = '13px sans-serif';
+      ovCtx.fillStyle = 'rgba(255,255,255,0.85)';
+      ovCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+      ovCtx.lineWidth = 3;
       const instr = corners.length < 4
         ? `Click to place corners (TL\u2192TR\u2192BR\u2192BL) \u2014 ${corners.length}/4`
         : 'Click a corner to select, then click to move';
-      octx.strokeText(instr, 12, 24);
-      octx.fillText(instr, 12, 24);
+      ovCtx.strokeText(instr, 12, 24);
+      ovCtx.fillText(instr, 12, 24);
     } else {
       // Ground truth overlay (blue dashed) — only when NOT in annotation mode
+      // Ground truth corners are in original-image space; display canvas is at full res
       if (showGroundTruthRef.current && groundTruth) {
-        const s = scale ?? 1;
-        octx.strokeStyle = '#3b82f6';
-        octx.lineWidth = 2;
-        octx.setLineDash([8, 4]);
-        octx.beginPath();
+        ovCtx.strokeStyle = '#3b82f6';
+        ovCtx.lineWidth = 2;
+        ovCtx.setLineDash([8, 4]);
+        ovCtx.beginPath();
         const gt = groundTruth.corners;
-        octx.moveTo(gt[0].x * s, gt[0].y * s);
-        for (let i = 1; i < 4; i++) octx.lineTo(gt[i].x * s, gt[i].y * s);
-        octx.closePath();
-        octx.stroke();
-        octx.setLineDash([]);
+        ovCtx.moveTo(gt[0].x, gt[0].y);
+        for (let i = 1; i < 4; i++) ovCtx.lineTo(gt[i].x, gt[i].y);
+        ovCtx.closePath();
+        ovCtx.stroke();
+        ovCtx.setLineDash([]);
       }
     }
 
     // Coordinate picker crosshair (magenta) — skip in annotation mode
+    // Clicked coords are in original-image space; display canvas is at full res
     if (!annotationModeRef.current && clickedCoordRef.current) {
-      const s = scale ?? 1;
-      const cx = clickedCoordRef.current.x * s;
-      const cy = clickedCoordRef.current.y * s;
-      octx.strokeStyle = '#ff00ff';
-      octx.lineWidth = 1;
-      octx.beginPath();
-      octx.moveTo(cx - 10, cy); octx.lineTo(cx + 10, cy);
-      octx.moveTo(cx, cy - 10); octx.lineTo(cx, cy + 10);
-      octx.stroke();
+      const cx = clickedCoordRef.current.x;
+      const cy = clickedCoordRef.current.y;
+      ovCtx.strokeStyle = '#ff00ff';
+      ovCtx.lineWidth = 1;
+      ovCtx.beginPath();
+      ovCtx.moveTo(cx - 10, cy); ovCtx.lineTo(cx + 10, cy);
+      ovCtx.moveTo(cx, cy - 10); ovCtx.lineTo(cx, cy + 10);
+      ovCtx.stroke();
     }
-  }, [groundTruth, scale]);
+  }, [groundTruth]);
 
   // Redraw overlay when clicked coordinate or annotation state changes
   useEffect(() => {
     if (isWebcam) return;
     const canvas = baseCanvasRef.current;
     if (!canvas) return;
-    drawOverlays(canvas.width, canvas.height);
-  }, [clickedCoord, annotCorners, selectedCorner, annotationMode, isWebcam, drawOverlays]);
+    drawOverlays(canvas.width, canvas.height, 1 / (scale ?? 1));
+  }, [clickedCoord, annotCorners, selectedCorner, annotationMode, isWebcam, drawOverlays, scale]);
 
   // ---------------------------------------------------------------------------
   // Metrics reporter
@@ -684,7 +709,7 @@ export default function DebugCanvas({
     const brightness = bData ? meanBrightness(bData, pixelCount) : 0;
 
     onMetricsUpdate({
-      detected: Boolean(bufs.debugInfo && bufs.debugInfo.length > 0),
+      detected: bufs.detected,
       debugInfo: bufs.debugInfo ?? '',
       rectFill: bufs.lastRectFill ?? 0,
       aspect: bufs.lastAspect ?? 0,
@@ -735,16 +760,6 @@ export default function DebugCanvas({
           />
           <Label htmlFor="toggle-contours" className="text-xs text-cyan-400">
             Contours
-          </Label>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            id="toggle-pipeline-hud"
-            checked={showPipelineOverlays}
-            onCheckedChange={setShowPipelineOverlays}
-          />
-          <Label htmlFor="toggle-pipeline-hud" className="text-xs text-white">
-            Pipeline HUD
           </Label>
         </div>
         <div className="flex items-center gap-2">
