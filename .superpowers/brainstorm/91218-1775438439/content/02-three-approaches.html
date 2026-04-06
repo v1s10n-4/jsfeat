@@ -1,0 +1,75 @@
+<h2>Three Architectures to Replace the Morph Blob</h2>
+<p class="subtitle">Each keeps contour-based detection (proven best for cards) but replaces the bottleneck differently.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)" style="border-color: #22c55e;">
+    <div class="letter" style="background: #22c55e;">A</div>
+    <div class="content">
+      <h3>Multi-Scale Morph Cascade <span style="color: #22c55e; font-size: 12px;">★ RECOMMENDED</span></h3>
+      <p style="margin-bottom: 8px;">Run morph blob at <strong>3 scales</strong> (radius 3, 5, 8). Use the <strong>smallest scale that detects a card</strong>. Small radius = tight blob = precise corners. Large radius = connected blob = catches hard cases.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Minimal code change — reuse existing pipeline 3x</li>
+          <li>Small radius fixes accuracy for "Detected but off" cases</li>
+          <li>Large radius fixes "No Card" cases (blob connectivity)</li>
+          <li>No new algorithms needed</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>3x morph cost (but morph is only ~20ms)</li>
+          <li>Still fundamentally blob-based</li>
+          <li>Won't help border-touching cards</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Edge Segment Grouping (Line-Based Detection)</h3>
+      <p style="margin-bottom: 8px;">Skip blobs entirely. Trace connected edge pixels into <strong>line segments</strong>, group by angle into 2 perpendicular directions, find <strong>4 lines forming a rectangle</strong>, intersect for corners.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Works directly with edges — no blob noise</li>
+          <li>Corners come from line intersections — geometrically precise</li>
+          <li>Handles perspective better (lines adapt to card geometry)</li>
+          <li>Handles border-touching cards (lines don't need closed contours)</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>Significant new code (~300 lines) — segment tracing, line fitting, grouping, rectangle scoring</li>
+          <li>Wood grain produces many spurious segments</li>
+          <li>Rounded card corners break line segments</li>
+          <li>Needs robust RANSAC-like line fitting</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Multi-Channel Contour Fusion</h3>
+      <p style="margin-bottom: 8px;">Run <strong>independent contour detection</strong> on grayscale, R-B warmth, and chroma channels. Each channel sees different card borders. <strong>Score and merge</strong> contour candidates across all channels.</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>Pros</h4><ul>
+          <li>Each channel may detect borders the others miss</li>
+          <li>Color channels already proven useful (Game 3 warmth breakthrough)</li>
+          <li>Naturally handles dark-on-dark and low-contrast edges</li>
+        </ul></div>
+        <div class="cons"><h4>Cons</h4><ul>
+          <li>3x full pipeline cost (3 Canny + 3 morph + 3 findContours)</li>
+          <li>Still blob-based per channel — same precision ceiling</li>
+          <li>Merging contour candidates from different channels is tricky</li>
+        </ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Hybrid Possibility: A + B</h3>
+  <div style="background: #1a1a2e; border: 1px solid #3b82f6; border-radius: 8px; padding: 16px;">
+    <p style="color: #93c5fd; margin: 0 0 8px 0; font-weight: bold;">Cascade: Multi-Scale Morph → Line-Based Fallback</p>
+    <p style="color: #ccc; margin: 0;">Use <strong>A</strong> as the primary detector (fast, proven). When it fails, fall back to <strong>B</strong> (line segment grouping) for the hardest cases. This gives the best of both: speed for easy cases, geometric precision for hard cases.</p>
+  </div>
+</div>

@@ -1,0 +1,122 @@
+<h2>The Path Forward: LSD Line Segment Detection</h2>
+<p class="subtitle">A fundamentally different approach that directly addresses our 3 failure modes.</p>
+
+<div class="section">
+  <h3>Why Current Approaches Hit a Ceiling</h3>
+  <div style="background: #1a1a2e; border: 1px solid #666; border-radius: 8px; padding: 16px;">
+    <p style="color: #f87171; margin: 0 0 8px 0; font-weight: bold;">All 4 branches scored 36-37/48. Why?</p>
+    <p style="color: #ccc; margin: 0;">They all depend on <strong>Canny edges</strong> as the foundation. Canny needs <strong>gradient magnitude</strong> — a measurable brightness difference. Dark card on dark wood has near-zero brightness difference. No matter how you process Canny edges (morph, contours, line segments, multiple channels), if Canny doesn't detect the edge, nothing downstream can find it.</p>
+  </div>
+</div>
+
+<div class="section">
+  <h3>LSD: Works on Gradient ORIENTATION, Not Magnitude</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Current: Canny (magnitude-based)</div>
+      <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+        <p style="color: #f87171;">Needs strong brightness difference</p>
+        <div style="background: #333; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+          dark card (val=40) | dark wood (val=50)<br>
+          gradient magnitude = 10<br>
+          Canny threshold = 20<br>
+          <span style="color: #f87171; font-weight: bold;">→ NO EDGE DETECTED</span>
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">LSD: (orientation-based)</div>
+      <div class="mockup-body" style="padding: 16px; font-size: 13px;">
+        <p style="color: #22c55e;">Only needs consistent gradient direction</p>
+        <div style="background: #333; padding: 12px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+          dark card (val=40) | dark wood (val=50)<br>
+          gradient direction = 90° (horizontal edge)<br>
+          neighboring pixels agree on direction<br>
+          <span style="color: #22c55e; font-weight: bold;">→ LINE SEGMENT FOUND ✓</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>How It Solves Each Failure Mode</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+    <tr style="border-bottom: 1px solid #333;">
+      <th style="text-align:left; padding: 8px; color: #888;">Failure</th>
+      <th style="text-align:left; padding: 8px; color: #888;">Why Current Fails</th>
+      <th style="text-align:left; padding: 8px; color: #888;">Why LSD Succeeds</th>
+    </tr>
+    <tr style="border-bottom: 1px solid #222;">
+      <td style="padding: 8px;">Dark on dark</td>
+      <td style="padding: 8px; color: #f87171;">No brightness gradient</td>
+      <td style="padding: 8px; color: #22c55e;">Even tiny gradients have a direction — LSD finds consistent orientations</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #222;">
+      <td style="padding: 8px;">Extreme angles</td>
+      <td style="padding: 8px; color: #f87171;">Morph blob fragments</td>
+      <td style="padding: 8px; color: #22c55e;">Lines are detected independently — no need for connected blobs</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #222;">
+      <td style="padding: 8px;">Border-touching</td>
+      <td style="padding: 8px; color: #f87171;">Contour rejected at border</td>
+      <td style="padding: 8px; color: #22c55e;">3 visible edges enough to infer 4th — lines don't need closed contours</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>Proposed Architecture</h3>
+  <div class="mockup">
+    <div class="mockup-header">New Pipeline: Morph Blob Primary → LSD Fallback</div>
+    <div class="mockup-body" style="padding: 20px; font-family: monospace; font-size: 12px; line-height: 2;">
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+        <span style="background: #22c55e; color: #000; padding: 3px 8px; border-radius: 4px;">Image</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #22c55e; color: #000; padding: 3px 8px; border-radius: 4px;">Blur + Canny + Scharr + Color</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #22c55e; color: #000; padding: 3px 8px; border-radius: 4px;">Morph Blob → Contours</span>
+      </div>
+      <div style="margin: 8px 0; color: #888;">↓ if no card found...</div>
+      <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+        <span style="background: #3b82f6; color: #fff; padding: 3px 8px; border-radius: 4px; font-weight: bold;">NEW: LSD on Scharr gradients</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #3b82f6; color: #fff; padding: 3px 8px; border-radius: 4px;">Group by angle</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #3b82f6; color: #fff; padding: 3px 8px; border-radius: 4px;">Find best rectangle</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #22c55e; color: #000; padding: 3px 8px; border-radius: 4px;">Corners</span>
+      </div>
+      <div style="margin-top: 12px; font-size: 11px; color: #888;">
+        LSD reuses existing Scharr derivatives — no new gradient computation needed.<br>
+        ~400 lines new code. Pure TypeScript. No external dependencies.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>Key Difference from Approach B (which scored 37/11)</h3>
+  <div style="background: #1a1a2e; border: 1px solid #3b82f6; border-radius: 8px; padding: 16px;">
+    <p style="color: #93c5fd; margin: 0 0 8px 0; font-weight: bold;">Approach B traced Canny edge pixels into segments — still depends on Canny seeing the edge.</p>
+    <p style="color: #ccc; margin: 0;">True LSD grows line-support regions directly from the <strong>gradient orientation field</strong>, bypassing Canny entirely. It finds lines where pixels share a consistent gradient direction, even if the gradient magnitude is below Canny's threshold. This is why LSD is called "parameter-free" — it doesn't need edge thresholds.</p>
+  </div>
+</div>
+
+<h3 style="margin-top: 24px;">Ready to spec this out?</h3>
+<div class="options">
+  <div class="option" data-choice="yes" onclick="toggleSelect(this)" style="border-color: #22c55e;">
+    <div class="letter" style="background: #22c55e;">✓</div>
+    <div class="content">
+      <h3>Yes — write the design spec for LSD + Quad Grouping</h3>
+      <p>Implement as a new jsfeat library function + integrate as fallback in the card detection pipeline.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="explore" onclick="toggleSelect(this)">
+    <div class="letter">?</div>
+    <div class="content">
+      <h3>I have questions first</h3>
+      <p>Want to understand more about LSD, performance implications, or implementation complexity.</p>
+    </div>
+  </div>
+</div>

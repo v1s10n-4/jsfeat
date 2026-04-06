@@ -1,0 +1,100 @@
+<h2>Card Detection Pipeline — Where Are We Stuck?</h2>
+<p class="subtitle">After 3 training games: 37/48 (77%). Let's diagnose the architectural ceiling.</p>
+
+<div class="section">
+  <h3>Current Pipeline (Morph Blob Approach)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Pipeline Flow — What Works vs What Fails</div>
+    <div class="mockup-body" style="padding: 20px; font-family: monospace; font-size: 13px; line-height: 1.8;">
+      <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+        <span style="background: #22c55e; color: #000; padding: 4px 10px; border-radius: 4px;">RGBA Image</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #22c55e; color: #000; padding: 4px 10px; border-radius: 4px;">Grayscale</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #22c55e; color: #000; padding: 4px 10px; border-radius: 4px;">Blur (k=15)</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #22c55e; color: #000; padding: 4px 10px; border-radius: 4px;">Canny Edges</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #eab308; color: #000; padding: 4px 10px; border-radius: 4px;">+ Scharr/Color</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #ef4444; color: #fff; padding: 4px 10px; border-radius: 4px; font-weight: bold;">Morph Blob ⚠️</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #ef4444; color: #fff; padding: 4px 10px; border-radius: 4px;">findContours ⚠️</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #eab308; color: #000; padding: 4px 10px; border-radius: 4px;">Hull + ApproxPoly</span>
+        <span style="color: #666;">→</span>
+        <span style="background: #eab308; color: #000; padding: 4px 10px; border-radius: 4px;">Refinement</span>
+      </div>
+      <div style="margin-top: 16px; font-size: 12px; color: #aaa;">
+        <span style="background: #22c55e; color: #000; padding: 2px 6px; border-radius: 3px;">Green</span> = Solid
+        <span style="background: #eab308; color: #000; padding: 2px 6px; border-radius: 3px; margin-left: 8px;">Yellow</span> = Improved but limited
+        <span style="background: #ef4444; color: #fff; padding: 2px 6px; border-radius: 3px; margin-left: 8px;">Red</span> = Architectural bottleneck
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>The 11 Remaining Failures — Root Cause Analysis</h3>
+  <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px;">
+    <tr style="border-bottom: 1px solid #333;">
+      <th style="text-align:left; padding: 8px; color: #888;">Category</th>
+      <th style="text-align:left; padding: 8px; color: #888;">Count</th>
+      <th style="text-align:left; padding: 8px; color: #888;">Root Cause</th>
+      <th style="text-align:left; padding: 8px; color: #888;">Why Morph Blob Can't Fix It</th>
+    </tr>
+    <tr style="border-bottom: 1px solid #222;">
+      <td style="padding: 8px; color: #f87171;">Blob doesn't form</td>
+      <td style="padding: 8px;">~4</td>
+      <td style="padding: 8px;">Edge density at card border too low on wood</td>
+      <td style="padding: 8px;">Blob follows edge <em>density</em>, not card <em>border</em>. Dark-on-dark has no gradient.</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #222;">
+      <td style="padding: 8px; color: #f87171;">Border-touching</td>
+      <td style="padding: 8px;">~2</td>
+      <td style="padding: 8px;">Card near image edge, blob touches border</td>
+      <td style="padding: 8px;">Can't relax border filter without letting in desk/shadow contours.</td>
+    </tr>
+    <tr style="border-bottom: 1px solid #222;">
+      <td style="padding: 8px; color: #fbbf24;">Detected, corners off</td>
+      <td style="padding: 8px;">~5</td>
+      <td style="padding: 8px;">Blob overshoots card, approxPoly corners ~50-170px off</td>
+      <td style="padding: 8px;">Hull shape follows blob edge, not card edge. Refinement can only fix ~10-15px.</td>
+    </tr>
+  </table>
+</div>
+
+<div class="section">
+  <h3>The Fundamental Problem</h3>
+  <div style="background: #1a1a2e; border: 1px solid #ef4444; border-radius: 8px; padding: 16px; margin-top: 8px;">
+    <p style="color: #f87171; font-weight: bold; margin: 0 0 8px 0;">The morph blob detects EDGE DENSITY, not CARD BORDERS.</p>
+    <p style="color: #ccc; margin: 0;">On clean paper backgrounds, edge density happens to align with card borders. On wood, wood grain edges create noise that fragments the blob or makes it overshoot. No amount of parameter tuning can overcome this — the architecture itself is the limit.</p>
+  </div>
+</div>
+
+<h3 style="margin-top: 24px;">Question: What matters most for the next iteration?</h3>
+<p class="subtitle">This will shape which architectural approach I recommend.</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Pure accuracy — 48/48 at any cost</h3>
+      <p>Willing to add complexity, multiple detection passes, longer processing time. The test suite must pass perfectly.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Real-time + accuracy balance</h3>
+      <p>Must still run at 15+ FPS on webcam. Improve accuracy but keep the pipeline fast. Accept that some extreme cases may not pass.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Architectural leap — rebuild detection from scratch</h3>
+      <p>Replace the morph blob approach entirely with a fundamentally different algorithm (Hough lines, contour-based, or hybrid). Biggest potential but highest risk.</p>
+    </div>
+  </div>
+</div>

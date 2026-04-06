@@ -2100,8 +2100,31 @@ function findCardQuadrilateral(
   segments: LineSegment[],
   w: number,
   h: number,
+  morphDensity?: Uint8Array | null,
 ): { x: number; y: number }[] | null {
-  if (segments.length < 4) return null;
+  // Pre-filter: exclude segments near image borders AND in low-density regions
+  const borderMargin = Math.min(w, h) * 0.08;
+  let filtered = segments.filter(s => {
+    const cx = (s.x1 + s.x2) / 2, cy = (s.y1 + s.y2) / 2;
+    if (cx < borderMargin || cx >= w - borderMargin ||
+        cy < borderMargin || cy >= h - borderMargin) return false;
+    // If morph density available, prefer segments near card-like regions
+    if (morphDensity) {
+      const mi = (Math.round(cy) * w + Math.round(cx)) | 0;
+      if (mi >= 0 && mi < w * h && morphDensity[mi] < 5) return false;
+    }
+    return true;
+  });
+  if (filtered.length < 4) {
+    // Retry without density filter if too few segments pass
+    filtered = segments.filter(s => {
+      const cx = (s.x1 + s.x2) / 2, cy = (s.y1 + s.y2) / 2;
+      return cx > borderMargin && cx < w - borderMargin &&
+             cy > borderMargin && cy < h - borderMargin;
+    });
+  }
+  if (filtered.length < 4) return null;
+  segments = filtered;
 
   const minArea = w * h * 0.03;
   const maxArea = w * h * 0.4;
@@ -2609,17 +2632,49 @@ const cardDetectionDemo: DemoDefinition = {
     // FALLBACK: LSD line segment detection when morph blob contour fails
     // -----------------------------------------------------------------------
     if (!detected) {
-      // Recompute Scharr on the blurred grayscale (may have been overwritten by color passes)
-      scharrDerivatives(_cardBlurred!, _cardScharr!);
+      // Try LSD on multiple gradient channels — each sees different card borders
+      const lsdChannels: [string, () => void][] = [
+        // Warmth (R-B): detects neutral card borders against warm wood
+        ['warmth', () => {
+          const cbd = _cardGray!.data;
+          const rgba2 = imageData.data;
+          for (let i = 0; i < w * h; i++) {
+            cbd[i] = Math.min(255, Math.max(0, 128 + rgba2[i * 4] - rgba2[i * 4 + 2]));
+          }
+          gaussianBlur(_cardGray!, _cardGray!, detKs, 0);
+          scharrDerivatives(_cardGray!, _cardScharr!);
+        }],
+        // Chroma (max-min RGB): detects saturated wood against neutral card
+        ['chroma', () => {
+          const cbd = _cardGray!.data;
+          const rgba2 = imageData.data;
+          for (let i = 0; i < w * h; i++) {
+            const r = rgba2[i * 4], g = rgba2[i * 4 + 1], b = rgba2[i * 4 + 2];
+            cbd[i] = Math.max(r, g, b) - Math.min(r, g, b);
+          }
+          gaussianBlur(_cardGray!, _cardGray!, detKs, 0);
+          scharrDerivatives(_cardGray!, _cardScharr!);
+        }],
+        // Grayscale: standard luminance gradients
+        ['gray', () => {
+          scharrDerivatives(_cardBlurred!, _cardScharr!);
+        }],
+      ];
 
-      const lsdSegments = detectLineSegments(_cardScharr!, 40, 5);
-
-      const lsdCorners = findCardQuadrilateral(lsdSegments, w, h);
-      if (lsdCorners) {
-        detected = true;
-        cardCorners = lsdCorners;
-        _cardDebugInfo = `LSD segs=${lsdSegments.length}`;
+      for (const [chName, computeGrad] of lsdChannels) {
+        computeGrad();
+        const lsdSegments = detectLineSegments(_cardScharr!, 80, 5);
+        const lsdCorners = findCardQuadrilateral(lsdSegments, w, h, bd as Uint8Array);
+        if (lsdCorners) {
+          detected = true;
+          cardCorners = lsdCorners;
+          _cardDebugInfo = `LSD[${chName}] segs=${lsdSegments.length}`;
+          break;
+        }
       }
+
+      // Restore grayscale Scharr for refinement
+      scharrDerivatives(_cardBlurred!, _cardScharr!);
     }
 
     // Refine quad: for each edge, scan perpendicular to find actual Canny border
