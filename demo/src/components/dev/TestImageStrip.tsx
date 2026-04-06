@@ -44,35 +44,35 @@ export default function TestImageStrip({
     <div className="flex flex-col gap-2">
       {/* Summary bar — all test controls in one compact row */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] text-muted-foreground">Pass:</span>
+        <span className="text-xs text-muted-foreground">Pass:</span>
         <input
           type="number"
-          className="w-12 h-5 rounded border border-border bg-background px-1 text-[10px] text-center"
+          className="w-14 rounded border border-border bg-background px-1.5 py-0.5 text-xs text-center"
           value={accuracyThreshold}
           onChange={(e) => onAccuracyThresholdChange(Number(e.target.value) || 50)}
           min={5}
           max={500}
         />
-        <span className="text-[10px] text-muted-foreground">px</span>
-        <span className="text-[10px] text-muted-foreground">&middot;</span>
-        <Badge variant="outline" className="text-[10px] h-4 px-1.5">
+        <span className="text-xs text-muted-foreground">px</span>
+        <span className="text-xs text-muted-foreground">&middot;</span>
+        <Badge variant="outline" className="text-xs px-1.5">
           {tested}/{total} tested
         </Badge>
         <Badge
-          className="text-[10px] h-4 px-1.5 bg-green-500/15 text-green-600 border-green-500/30 dark:text-green-400"
+          className="text-xs px-1.5 bg-green-500/15 text-green-600 border-green-500/30 dark:text-green-400"
         >
           {passCount} pass
         </Badge>
         <Badge
-          className="text-[10px] h-4 px-1.5 bg-red-500/15 text-red-600 border-red-500/30 dark:text-red-400"
+          className="text-xs px-1.5 bg-red-500/15 text-red-600 border-red-500/30 dark:text-red-400"
         >
           {failCount} fail
         </Badge>
         <div className="ml-auto flex items-center gap-1.5">
-          <Button variant="outline" size="sm" className="h-5 text-[10px] px-2" onClick={onRetest}>
+          <Button variant="outline" size="sm" onClick={onRetest}>
             Retest
           </Button>
-          <Button onClick={onRunAll} disabled={running} variant="default" size="sm" className="h-5 text-[10px] px-2">
+          <Button onClick={onRunAll} disabled={running} variant="default" size="sm">
             {running ? 'Running\u2026' : 'Run All'}
           </Button>
         </div>
@@ -85,7 +85,7 @@ export default function TestImageStrip({
             const categoryImages = testImages.filter((img) => img.category === category);
             return (
               <div key={category} className="flex flex-col gap-1.5">
-                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   {category}
                 </span>
                 <div className="flex gap-1.5">

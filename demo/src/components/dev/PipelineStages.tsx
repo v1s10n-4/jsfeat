@@ -80,7 +80,7 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
       <div className="grid grid-cols-3 gap-1">
         {STAGES.map((stage, i) => (
           <div key={stage.id}>
-            <div className="text-[9px] text-muted-foreground">{stage.label}</div>
+            <div className="text-xs text-muted-foreground">{stage.label}</div>
             <canvas
               ref={(el) => { canvasRefs.current[i] = el; }}
               className="w-full border border-border/50 rounded"
