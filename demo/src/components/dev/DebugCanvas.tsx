@@ -72,6 +72,54 @@ interface DebugCanvasProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Compute 3x3 homography from 4 source points to 4 destination points. */
+function computeHomography(
+  src: { x: number; y: number }[],
+  dst: { x: number; y: number }[],
+): Float64Array | null {
+  // Build 8x8 system: Ah = b
+  const A = new Float64Array(64);
+  const b = new Float64Array(8);
+  for (let i = 0; i < 4; i++) {
+    const sx = src[i].x, sy = src[i].y;
+    const dx = dst[i].x, dy = dst[i].y;
+    const r1 = i * 2, r2 = i * 2 + 1;
+    A[r1*8+0] = sx; A[r1*8+1] = sy; A[r1*8+2] = 1;
+    A[r1*8+3] = 0;  A[r1*8+4] = 0;  A[r1*8+5] = 0;
+    A[r1*8+6] = -dx*sx; A[r1*8+7] = -dx*sy;
+    b[r1] = dx;
+    A[r2*8+0] = 0;  A[r2*8+1] = 0;  A[r2*8+2] = 0;
+    A[r2*8+3] = sx;  A[r2*8+4] = sy; A[r2*8+5] = 1;
+    A[r2*8+6] = -dy*sx; A[r2*8+7] = -dy*sy;
+    b[r2] = dy;
+  }
+  // Gaussian elimination
+  for (let col = 0; col < 8; col++) {
+    let maxRow = col, maxVal = Math.abs(A[col*8+col]);
+    for (let row = col + 1; row < 8; row++) {
+      const v = Math.abs(A[row*8+col]);
+      if (v > maxVal) { maxVal = v; maxRow = row; }
+    }
+    if (maxVal < 1e-10) return null;
+    if (maxRow !== col) {
+      for (let k = 0; k < 8; k++) {
+        const tmp = A[col*8+k]; A[col*8+k] = A[maxRow*8+k]; A[maxRow*8+k] = tmp;
+      }
+      const tmpB = b[col]; b[col] = b[maxRow]; b[maxRow] = tmpB;
+    }
+    const pivot = A[col*8+col];
+    for (let k = col; k < 8; k++) A[col*8+k] /= pivot;
+    b[col] /= pivot;
+    for (let row = 0; row < 8; row++) {
+      if (row === col) continue;
+      const factor = A[row*8+col];
+      for (let k = col; k < 8; k++) A[row*8+k] -= factor * A[col*8+k];
+      b[row] -= factor * b[col];
+    }
+  }
+  return new Float64Array([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], 1]);
+}
+
 /** Compute mean brightness from a Uint8Array grayscale buffer. */
 function meanBrightness(data: Uint8Array, size: number): number {
   if (size === 0) return 0;
@@ -578,14 +626,89 @@ export default function DebugCanvas({
       }
     }
 
-    // Status text (fixed 12px)
+    // Warp preview: show perspective-corrected card in bottom-right
+    if (bufs.smoothedCorners && bufs.detected) {
+      const c = bufs.smoothedCorners;
+      const cardW = 125, cardH = 175; // preview size (5:7 ratio)
+      const margin = 8;
+      const cardX = w - cardW - margin;
+      const cardY = h - cardH - margin - 20; // 20px for label
+
+      // Read pixels from the display canvas to do the warp
+      const baseCanvas = baseCanvasRef.current;
+      if (baseCanvas) {
+        const srcCtx = baseCanvas.getContext('2d', { willReadFrequently: true });
+        if (srcCtx) {
+          const srcImg = srcCtx.getImageData(0, 0, w, h);
+          const srcData = srcImg.data;
+
+          // Apply coordScale to get corners in display space
+          const cs = coordScale;
+          const srcCorners = c.map(p => ({ x: p.x * cs, y: p.y * cs }));
+
+          // Compute perspective transform: srcCorners -> rectangle
+          // Use inverse mapping: for each pixel in output, find source pixel
+          const outImg = ovCtx.createImageData(cardW, cardH);
+          const outData = outImg.data;
+
+          // Perspective transform coefficients
+          const sx = srcCorners;
+          const dx = [
+            { x: 0, y: 0 }, { x: cardW, y: 0 },
+            { x: cardW, y: cardH }, { x: 0, y: cardH },
+          ];
+
+          // Compute 3x3 homography from dst->src (inverse warp)
+          // Using the 4-point DLT method
+          const H = computeHomography(dx, sx);
+          if (H) {
+            for (let py = 0; py < cardH; py++) {
+              for (let px = 0; px < cardW; px++) {
+                const denom = H[6] * px + H[7] * py + H[8];
+                if (Math.abs(denom) < 1e-8) continue;
+                const srcX = (H[0] * px + H[1] * py + H[2]) / denom;
+                const srcY = (H[3] * px + H[4] * py + H[5]) / denom;
+                const ix = Math.round(srcX), iy = Math.round(srcY);
+                if (ix >= 0 && ix < w && iy >= 0 && iy < h) {
+                  const si = (iy * w + ix) * 4;
+                  const di = (py * cardW + px) * 4;
+                  outData[di] = srcData[si];
+                  outData[di + 1] = srcData[si + 1];
+                  outData[di + 2] = srcData[si + 2];
+                  outData[di + 3] = 255;
+                }
+              }
+            }
+
+            // Draw background
+            ovCtx.fillStyle = 'rgba(0,0,0,0.7)';
+            ovCtx.fillRect(cardX - 2, cardY - 18, cardW + 4, cardH + 22);
+
+            // Draw label
+            ovCtx.fillStyle = '#fff';
+            ovCtx.font = '11px monospace';
+            ovCtx.textAlign = 'center';
+            ovCtx.fillText('Detected Card', cardX + cardW / 2, cardY - 5);
+
+            // Draw warped card
+            ovCtx.putImageData(outImg, cardX, cardY);
+            ovCtx.strokeStyle = '#00ff00';
+            ovCtx.lineWidth = 2;
+            ovCtx.strokeRect(cardX - 1, cardY - 1, cardW + 2, cardH + 2);
+          }
+        }
+      }
+    }
+
+    // Status text with background
+    const statusText = (bufs.detected ? 'Card detected' : 'No card found') + (bufs.debugInfo ? ` | ${bufs.debugInfo}` : '');
     ovCtx.font = '12px monospace';
-    ovCtx.textAlign = 'left';
+    const textWidth = ovCtx.measureText(statusText).width;
+    ovCtx.fillStyle = 'rgba(0,0,0,0.7)';
+    ovCtx.fillRect(4, h - 22, textWidth + 8, 18);
     ovCtx.fillStyle = bufs.detected ? '#0f0' : '#f66';
-    ovCtx.fillText(
-      (bufs.detected ? 'Card detected' : 'No card found') + (bufs.debugInfo ? ` | ${bufs.debugInfo}` : ''),
-      8, h - 8,
-    );
+    ovCtx.textAlign = 'left';
+    ovCtx.fillText(statusText, 8, h - 8);
 
     // Quality chart (fixed 120x24px, top-right)
     if (bufs.qualityHistory?.length) {
