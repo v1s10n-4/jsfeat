@@ -2127,6 +2127,14 @@ const cardDetectionDemo: DemoDefinition = {
     jfGrayscale(new Uint8Array(imageData.data.buffer), w, h, _cardGray);
     profiler.end('grayscale');
 
+    // Boost contrast in dark images where card-background contrast is low
+    const gd = _cardGray!.data;
+    let brightSum = 0;
+    for (let i = 0; i < w * h; i++) brightSum += gd[i];
+    if (brightSum / (w * h) < 100) {
+      equalizeHistogram(_cardGray!, _cardGray!);
+    }
+
     profiler.start('blur');
     let ks = _cardParams.blurKernel ?? 9;
     if (ks % 2 === 0) ks += 1;
@@ -2155,8 +2163,29 @@ const cardDetectionDemo: DemoDefinition = {
     const sd = _cardScharr.data;
     for (let i = 0; i < w * h; i++) {
       const mag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
-      if (mag > 30) ed[i] = 255; // merge strong gradient pixels with Canny edges
+      if (mag > 30) ed[i] = 255;
     }
+
+    // Color-based edge detection: R-B "warmth" gradient detects
+    // dark card borders (neutral) against warm wood (brown, R>B).
+    const rgba = imageData.data;
+    const warmBuf = _cardGray!; // reuse as temp
+    const wbd = warmBuf.data;
+    for (let i = 0; i < w * h; i++) {
+      wbd[i] = Math.min(255, Math.max(0, 128 + rgba[i * 4] - rgba[i * 4 + 2]));
+    }
+    gaussianBlur(warmBuf, warmBuf, detKs, 0);
+    scharrDerivatives(warmBuf, _cardScharr);
+    for (let i = 0; i < w * h; i++) {
+      const px = i % w, py = (i / w) | 0;
+      if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
+      const wmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
+      if (wmag > 25) ed[i] = 255;
+    }
+    // Restore grayscale Scharr for edge refinement
+    scharrDerivatives(_cardBlurred!, _cardScharr);
+    // Restore Canny edges for refinement
+    _cardGray!.data.set(_cardEdges!.data);
 
     // Morph: box blur connects nearby edges into solid blobs.
     boxBlurGray(_cardEdges!, _cardBlurred!, 5);
