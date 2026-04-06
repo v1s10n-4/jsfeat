@@ -18,7 +18,9 @@ import {
   warpAffine,
   findContours,
   approxPoly,
+  detectLineSegments,
 } from 'jsfeat/imgproc';
+import type { LineSegment } from 'jsfeat/imgproc';
 import { fastCorners, yape06Detect, orbDescribe } from 'jsfeat/features';
 import { drawVideoFrame } from '@/lib/videoOrientation';
 import { lucasKanade } from 'jsfeat/flow';
@@ -2090,6 +2092,181 @@ function getPerspectiveTransform(
   return H;
 }
 
+// ---------------------------------------------------------------------------
+// LSD-based card quadrilateral detection
+// ---------------------------------------------------------------------------
+
+function findCardQuadrilateral(
+  segments: LineSegment[],
+  w: number,
+  h: number,
+): { x: number; y: number }[] | null {
+  if (segments.length < 4) return null;
+
+  const minArea = w * h * 0.03;
+  const maxArea = w * h * 0.4;
+  const margin = 10;
+
+  interface AngleGroup {
+    segments: LineSegment[];
+    meanAngle: number;
+    totalLength: number;
+  }
+
+  const groups: AngleGroup[] = [];
+  const ANGLE_GROUP_TOL = (15 * Math.PI) / 180;
+
+  for (const seg of segments) {
+    let placed = false;
+    for (const g of groups) {
+      let diff = Math.abs(seg.angle - g.meanAngle);
+      if (diff > Math.PI / 2) diff = Math.PI - diff;
+      if (diff < ANGLE_GROUP_TOL) {
+        g.segments.push(seg);
+        g.totalLength += seg.length;
+        let sum = 0;
+        for (const s of g.segments) sum += s.angle;
+        g.meanAngle = sum / g.segments.length;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      groups.push({
+        segments: [seg],
+        meanAngle: seg.angle,
+        totalLength: seg.length,
+      });
+    }
+  }
+
+  groups.sort((a, b) => b.totalLength - a.totalLength);
+
+  let group1: AngleGroup | null = null;
+  let group2: AngleGroup | null = null;
+
+  for (let i = 0; i < groups.length && !group2; i++) {
+    for (let j = i + 1; j < groups.length; j++) {
+      let angleDiff = Math.abs(groups[i].meanAngle - groups[j].meanAngle);
+      if (angleDiff > Math.PI / 2) angleDiff = Math.PI - angleDiff;
+      const perpDiff = Math.abs(angleDiff - Math.PI / 2);
+      if (perpDiff < (20 * Math.PI) / 180) {
+        group1 = groups[i];
+        group2 = groups[j];
+        break;
+      }
+    }
+  }
+
+  if (!group1 || !group2) return null;
+
+  const MAX_PER_GROUP = 15;
+  const lines1 = group1.segments.slice(0, MAX_PER_GROUP);
+  const lines2 = group2.segments.slice(0, MAX_PER_GROUP);
+
+  if (lines1.length < 2 || lines2.length < 2) return null;
+
+  let bestScore = 0;
+  let bestCorners: { x: number; y: number }[] | null = null;
+
+  for (let a = 0; a < lines1.length; a++) {
+    for (let b = a + 1; b < lines1.length; b++) {
+      for (let c = 0; c < lines2.length; c++) {
+        for (let d = c + 1; d < lines2.length; d++) {
+          const fourLines = [lines1[a], lines1[b], lines2[c], lines2[d]];
+
+          const corners: { x: number; y: number }[] = [];
+          for (const la of [lines1[a], lines1[b]]) {
+            for (const lb of [lines2[c], lines2[d]]) {
+              const pt = intersectSegmentLines(la, lb);
+              if (pt) corners.push(pt);
+            }
+          }
+
+          if (corners.length !== 4) continue;
+
+          let inBounds = true;
+          for (const c2 of corners) {
+            if (c2.x < margin || c2.y < margin || c2.x >= w - margin || c2.y >= h - margin) {
+              inBounds = false;
+              break;
+            }
+          }
+          if (!inBounds) continue;
+
+          const sorted = sortCorners(corners);
+          if (!isConvexQuad(sorted)) continue;
+
+          const area = quadArea(sorted);
+          if (area < minArea || area > maxArea) continue;
+
+          const sides: number[] = [];
+          for (let si = 0; si < 4; si++) {
+            const sa = sorted[si], sb = sorted[(si + 1) % 4];
+            sides.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
+          }
+          const minSide = Math.min(...sides), maxSide = Math.max(...sides);
+          if (minSide < maxSide * 0.15) continue;
+
+          const aspect = Math.min(
+            (sides[0] + sides[2]) / 2,
+            (sides[1] + sides[3]) / 2,
+          ) / Math.max(
+            (sides[0] + sides[2]) / 2,
+            (sides[1] + sides[3]) / 2,
+          );
+          const aspectMatch = 1 - Math.abs(aspect - 5 / 7) * 3;
+          if (aspectMatch < -0.5) continue;
+
+          const totalLen = fourLines.reduce((s2, l) => s2 + l.length, 0);
+          const score = area * Math.max(0.1, aspectMatch) * totalLen;
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestCorners = sorted;
+          }
+        }
+      }
+    }
+  }
+
+  return bestCorners;
+}
+
+function intersectSegmentLines(
+  s1: LineSegment,
+  s2: LineSegment,
+): { x: number; y: number } | null {
+  const d1x = s1.x2 - s1.x1, d1y = s1.y2 - s1.y1;
+  const d2x = s2.x2 - s2.x1, d2y = s2.y2 - s2.y1;
+  const cross = d1x * d2y - d1y * d2x;
+  if (Math.abs(cross) < 1e-6) return null;
+  const dx = s2.x1 - s1.x1, dy = s2.y1 - s1.y1;
+  const t = (dx * d2y - dy * d2x) / cross;
+  return { x: s1.x1 + t * d1x, y: s1.y1 + t * d1y };
+}
+
+function isConvexQuad(pts: { x: number; y: number }[]): boolean {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = pts[i], b = pts[(i + 1) % 4], c = pts[(i + 2) % 4];
+    const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (sign === 0) sign = cross > 0 ? 1 : -1;
+    else if ((cross > 0 ? 1 : -1) !== sign) return false;
+  }
+  return true;
+}
+
+function quadArea(pts: { x: number; y: number }[]): number {
+  let area = 0;
+  for (let i = 0; i < 4; i++) {
+    const j = (i + 1) % 4;
+    area += pts[i].x * pts[j].y;
+    area -= pts[j].x * pts[i].y;
+  }
+  return Math.abs(area) / 2;
+}
+
 const cardDetectionDemo: DemoDefinition = {
   id: 'cardDetection',
   title: 'Trading Card Detection',
@@ -2427,6 +2604,23 @@ const cardDetectionDemo: DemoDefinition = {
       }
     }
     profiler.end('contour');
+
+    // -----------------------------------------------------------------------
+    // FALLBACK: LSD line segment detection when morph blob contour fails
+    // -----------------------------------------------------------------------
+    if (!detected) {
+      // Recompute Scharr on the blurred grayscale (may have been overwritten by color passes)
+      scharrDerivatives(_cardBlurred!, _cardScharr!);
+
+      const lsdSegments = detectLineSegments(_cardScharr!, 40, 5);
+
+      const lsdCorners = findCardQuadrilateral(lsdSegments, w, h);
+      if (lsdCorners) {
+        detected = true;
+        cardCorners = lsdCorners;
+        _cardDebugInfo = `LSD segs=${lsdSegments.length}`;
+      }
+    }
 
     // Refine quad: for each edge, scan perpendicular to find actual Canny border
     if (detected && cardCorners.length === 4) {
