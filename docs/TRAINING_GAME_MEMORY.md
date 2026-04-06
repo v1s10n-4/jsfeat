@@ -102,3 +102,23 @@
 10. **The morph blob approach has a ceiling at ~37/48** — further gains need architectural changes.
 11. **Remaining 11 failures**: mostly "Detected but inaccurate" (blob overshoots), a few "No Card" (border-touching or extreme angles).
 12. **Research needed**: Hough line detection, perspective-aware corner refinement, or ML-based detection for the remaining 11.
+
+## Post-Game Experiments: Everything Regresses from 37/48
+
+### Approaches That ALL Made Things Worse
+| Approach | Score | Problem |
+|----------|-------|---------|
+| LSD-only pipeline | 14/48 | Can't distinguish card lines from wood grain |
+| Hybrid morph+LSD (ROI) | 37/48 | LSD can't improve corners without diverging from morph detection |
+| Bilateral filter (replace Gaussian) | 32/48 | Changes Canny/Scharr response patterns; also 2s/frame |
+| Warp + re-detect | 33/48 | Inaccurate initial corners → distorted warp → worse re-detection |
+| Color segmentation (remove bg from blob) | 30/48 | Removes too many valid blob pixels |
+| Multi-scale morph [3,5,8] | 36/48 | Smaller radius picks worse contours |
+| Gradient-peak refinement | 37/48 | Wood grain peaks mask card border peaks |
+| Centroid shrink | Worse | Moves good corners toward center indiscriminately |
+| Parallelogram correction | Worse | Fails with perspective distortion |
+| Extended scan range (-80px) | Worse | Finds noise Canny edges further out |
+| Equalization threshold 130 | 24/48 | Breaks moderately dark images |
+
+### The Hard Truth
+The morph blob pipeline at 37/48 is a **local optimum**. Every modification breaks the delicate parameter balance. The 11 remaining failures need a fundamentally different detection paradigm — not tweaks to the existing pipeline.
