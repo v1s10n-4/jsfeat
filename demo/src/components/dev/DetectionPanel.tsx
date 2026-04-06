@@ -14,7 +14,6 @@ interface DetectionPanelProps {
   onResetParams: () => void;
   metrics: DetectionMetrics | null;
   verdict: 'pass' | 'fail' | 'untested';
-  onRetest: () => void;
 }
 
 export default function DetectionPanel({
@@ -23,16 +22,12 @@ export default function DetectionPanel({
   onResetParams,
   metrics,
   verdict,
-  onRetest,
 }: DetectionPanelProps) {
   return (
     <div className="space-y-3">
       {/* Detection Metrics — compact layout */}
       <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Metrics</h3>
-          <Button variant="outline" size="xs" onClick={onRetest} className="h-5 text-[9px] px-1.5">Retest</Button>
-        </div>
+        <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Metrics</h3>
         {metrics ? (
           <>
             {/* Status + verdict inline */}

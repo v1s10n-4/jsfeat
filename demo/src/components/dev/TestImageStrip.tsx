@@ -11,6 +11,9 @@ interface TestImageStripProps {
   verdicts: Record<string, Verdict>;
   onRunAll: () => void;
   running: boolean;
+  accuracyThreshold: number;
+  onAccuracyThresholdChange: (value: number) => void;
+  onRetest: () => void;
 }
 
 const THUMB_W = 100;
@@ -28,6 +31,9 @@ export default function TestImageStrip({
   verdicts,
   onRunAll,
   running,
+  accuracyThreshold,
+  onAccuracyThresholdChange,
+  onRetest,
 }: TestImageStripProps) {
   const total = testImages.length;
   const tested = testImages.filter((img) => verdicts[img.path] !== undefined && verdicts[img.path] !== 'untested').length;
@@ -36,32 +42,38 @@ export default function TestImageStrip({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Summary bar */}
+      {/* Summary bar — all test controls in one compact row */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mr-1">
-          Test Images
-        </span>
-        <Badge variant="outline" className="text-xs">
+        <span className="text-[10px] text-muted-foreground">Pass:</span>
+        <input
+          type="number"
+          className="w-12 h-5 rounded border border-border bg-background px-1 text-[10px] text-center"
+          value={accuracyThreshold}
+          onChange={(e) => onAccuracyThresholdChange(Number(e.target.value) || 50)}
+          min={5}
+          max={500}
+        />
+        <span className="text-[10px] text-muted-foreground">px</span>
+        <span className="text-[10px] text-muted-foreground">&middot;</span>
+        <Badge variant="outline" className="text-[10px] h-4 px-1.5">
           {tested}/{total} tested
         </Badge>
         <Badge
-          className="text-xs bg-green-500/15 text-green-600 border-green-500/30 dark:text-green-400"
+          className="text-[10px] h-4 px-1.5 bg-green-500/15 text-green-600 border-green-500/30 dark:text-green-400"
         >
           {passCount} pass
         </Badge>
         <Badge
-          className="text-xs bg-red-500/15 text-red-600 border-red-500/30 dark:text-red-400"
+          className="text-[10px] h-4 px-1.5 bg-red-500/15 text-red-600 border-red-500/30 dark:text-red-400"
         >
           {failCount} fail
         </Badge>
-        <div className="ml-auto">
-          <Button
-            size="sm"
-            variant="default"
-            onClick={onRunAll}
-            disabled={running}
-          >
-            {running ? 'Running…' : 'Run All'}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button variant="outline" size="sm" className="h-5 text-[10px] px-2" onClick={onRetest}>
+            Retest
+          </Button>
+          <Button onClick={onRunAll} disabled={running} variant="default" size="sm" className="h-5 text-[10px] px-2">
+            {running ? 'Running\u2026' : 'Run All'}
           </Button>
         </div>
       </div>

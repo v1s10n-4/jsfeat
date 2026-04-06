@@ -368,50 +368,37 @@ export default function DevPage() {
             onResetParams={handleResetParams}
             metrics={metrics}
             verdict={selectedVerdict}
-            onRetest={() => {
-              if (!selectedImage) return;
-              // Bump retestTick to force DebugCanvas to re-process the image
-              setRetestTick((t) => t + 1);
-              // Verdict will be updated after re-processing via handleMetricsUpdate
-              // Use a delayed check to read the new metrics
-              setTimeout(() => {
-                const m = latestMetricsRef.current;
-                const img = testImages.find((i) => i.path === selectedImage);
-                if (!img?.groundTruth || !m?.corners || m.corners.length < 4) {
-                  const next = { ...verdicts, [selectedImage]: 'fail' as const };
-                  setVerdicts(next); saveVerdicts(next);
-                } else {
-                  const acc = computeAccuracy(m.corners, img.groundTruth, scale);
-                  const v = acc.meanDist <= accuracyThreshold ? 'pass' : 'fail';
-                  const next = { ...verdicts, [selectedImage]: v as 'pass' | 'fail' };
-                  setVerdicts(next); saveVerdicts(next);
-                }
-              }, 500);
-            }}
           />
         </div>
       </div>
 
       {/* Bottom: TestImageStrip */}
       <div className="flex-shrink-0">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-[10px] text-muted-foreground">Pass threshold:</span>
-        <input
-          type="number"
-          className="w-14 h-6 rounded border border-border bg-background px-1 text-xs text-center"
-          value={accuracyThreshold}
-          onChange={(e) => setAccuracyThreshold(Number(e.target.value) || 50)}
-          min={5}
-          max={500}
-        />
-        <span className="text-[10px] text-muted-foreground">px (mean corner distance)</span>
-      </div>
       <TestImageStrip
         selectedImage={selectedImage}
         onSelectImage={handleSelectImage}
         verdicts={verdicts}
         onRunAll={handleRunAll}
         running={batchRunning}
+        accuracyThreshold={accuracyThreshold}
+        onAccuracyThresholdChange={setAccuracyThreshold}
+        onRetest={() => {
+          if (!selectedImage) return;
+          setRetestTick((t) => t + 1);
+          setTimeout(() => {
+            const m = latestMetricsRef.current;
+            const img = testImages.find((i) => i.path === selectedImage);
+            if (!img?.groundTruth || !m?.corners || m.corners.length < 4) {
+              const next = { ...verdicts, [selectedImage]: 'fail' as const };
+              setVerdicts(next); saveVerdicts(next);
+            } else {
+              const acc = computeAccuracy(m.corners, img.groundTruth, scale);
+              const v = acc.meanDist <= accuracyThreshold ? 'pass' : 'fail';
+              const next = { ...verdicts, [selectedImage]: v as 'pass' | 'fail' };
+              setVerdicts(next); saveVerdicts(next);
+            }
+          }, 500);
+        }}
       />
       </div>
     </div>
