@@ -2099,17 +2099,23 @@ function findCardQuadrilateral(
   w: number,
   h: number,
 ): { x: number; y: number }[] | null {
-  const borderMargin = Math.min(w, h) * 0.08;
+  const sideMargin = w * 0.03;
+  const topMargin = h * 0.03;
+  const bottomMargin = h * 0.18; // exclude MacBook bezel / desk edge
   const filtered = segments.filter(s => {
-    const cx = (s.x1 + s.x2) / 2, cy = (s.y1 + s.y2) / 2;
-    return cx > borderMargin && cx < w - borderMargin &&
-           cy > borderMargin && cy < h - borderMargin;
+    // Check BOTH endpoints to exclude segments crossing into border zones
+    return s.x1 > sideMargin && s.x2 > sideMargin &&
+           s.x1 < w - sideMargin && s.x2 < w - sideMargin &&
+           s.y1 > topMargin && s.y2 > topMargin &&
+           s.y1 < h - bottomMargin && s.y2 < h - bottomMargin &&
+           // Reject very long segments (desk edges, MacBook frame)
+           s.length < Math.sqrt(w * w + h * h) * 0.35;
   });
   if (filtered.length < 4) return null;
   segments = filtered;
 
   const minArea = w * h * 0.03;
-  const maxArea = w * h * 0.4;
+  const maxArea = w * h * 0.25;
   const margin = 10;
 
   interface AngleGroup {
@@ -2213,6 +2219,30 @@ function findCardQuadrilateral(
           const minSide = Math.min(...sides), maxSide = Math.max(...sides);
           if (minSide < maxSide * 0.15) continue;
 
+          // Rectangularity: opposite sides must be roughly parallel and equal
+          const parallelRatio0 = Math.min(sides[0], sides[2]) / Math.max(sides[0], sides[2]);
+          const parallelRatio1 = Math.min(sides[1], sides[3]) / Math.max(sides[1], sides[3]);
+          if (parallelRatio0 < 0.3 || parallelRatio1 < 0.3) continue; // opposite sides too different
+
+          // Check angles at corners are roughly 90° (dot product near 0)
+          let minAngleCos = 1;
+          for (let ai = 0; ai < 4; ai++) {
+            const p = sorted[ai], q = sorted[(ai + 1) % 4], r = sorted[(ai + 2) % 4];
+            const v1x = p.x - q.x, v1y = p.y - q.y;
+            const v2x = r.x - q.x, v2y = r.y - q.y;
+            const len1 = Math.sqrt(v1x*v1x + v1y*v1y) || 1;
+            const len2 = Math.sqrt(v2x*v2x + v2y*v2y) || 1;
+            const cosAngle = Math.abs((v1x*v2x + v1y*v2y) / (len1 * len2));
+            if (cosAngle < minAngleCos) minAngleCos = cosAngle;
+          }
+          // cosAngle should be near 0 for 90° — reject if any angle > ~60° or < ~120°
+          const maxCosAngle = Math.max(...[0,1,2,3].map(ai => {
+            const p = sorted[ai], q = sorted[(ai+1)%4], r = sorted[(ai+2)%4];
+            const v1x = p.x-q.x, v1y = p.y-q.y, v2x = r.x-q.x, v2y = r.y-q.y;
+            return Math.abs((v1x*v2x+v1y*v2y) / ((Math.sqrt(v1x*v1x+v1y*v1y)||1) * (Math.sqrt(v2x*v2x+v2y*v2y)||1)));
+          }));
+          if (maxCosAngle > 0.65) continue; // allow up to ~50° deviation from right angle
+
           const aspect = Math.min(
             (sides[0] + sides[2]) / 2,
             (sides[1] + sides[3]) / 2,
@@ -2221,10 +2251,16 @@ function findCardQuadrilateral(
             (sides[1] + sides[3]) / 2,
           );
           const aspectMatch = 1 - Math.abs(aspect - 5 / 7) * 3;
-          if (aspectMatch < -0.5) continue;
+          if (aspectMatch < -0.3) continue; // tighter aspect filter
 
           const totalLen = fourLines.reduce((s2, l) => s2 + l.length, 0);
-          const score = area * Math.max(0.1, aspectMatch) * totalLen;
+          // Prefer card-sized quads. Soft Gaussian-like penalty around ideal size.
+          const idealArea = w * h * 0.12;
+          const logRatio = Math.log(area / idealArea);
+          const sizePenalty = Math.exp(-logRatio * logRatio * 2);
+          // Bonus for rectangular shapes (low maxCosAngle = closer to 90° corners)
+          const rectBonus = 1 - maxCosAngle; // 1.0 for perfect right angles, 0.35 at threshold
+          const score = area * Math.max(0.1, aspectMatch) * sizePenalty * rectBonus * totalLen;
 
           if (score > bestScore) {
             bestScore = score;
@@ -2325,8 +2361,12 @@ const cardDetectionDemo: DemoDefinition = {
     const rgba = imageData.data;
     const allSegments: LineSegment[] = [];
 
-    // Channel 1: Grayscale
-    scharrDerivatives(_cardBlurred!, _cardScharr!);
+    // Use lighter blur for LSD (preserves card border gradients)
+    const lsdKs = Math.max(ks, 9) | 1;
+
+    // Channel 1: Grayscale (lighter blur for sharper card edges)
+    gaussianBlur(_cardGray!, _cardEdges!, lsdKs, 0);
+    scharrDerivatives(_cardEdges!, _cardScharr!);
     const graySegs = detectLineSegments(_cardScharr!, minLen, 5);
     allSegments.push(...graySegs);
 
@@ -2335,7 +2375,7 @@ const cardDetectionDemo: DemoDefinition = {
     for (let i = 0; i < w * h; i++) {
       cbd[i] = Math.min(255, Math.max(0, 128 + rgba[i * 4] - rgba[i * 4 + 2]));
     }
-    gaussianBlur(_cardEdges!, _cardEdges!, detKs, 0);
+    gaussianBlur(_cardEdges!, _cardEdges!, lsdKs, 0);
     scharrDerivatives(_cardEdges!, _cardScharr!);
     const warmSegs = detectLineSegments(_cardScharr!, minLen, 5);
     allSegments.push(...warmSegs);
@@ -2345,7 +2385,7 @@ const cardDetectionDemo: DemoDefinition = {
       const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2];
       cbd[i] = Math.max(r, g, b) - Math.min(r, g, b);
     }
-    gaussianBlur(_cardEdges!, _cardEdges!, detKs, 0);
+    gaussianBlur(_cardEdges!, _cardEdges!, lsdKs, 0);
     scharrDerivatives(_cardEdges!, _cardScharr!);
     const chromaSegs = detectLineSegments(_cardScharr!, minLen, 5);
     allSegments.push(...chromaSegs);
