@@ -102,7 +102,7 @@ export default function DetectionPanel({
             {/* Corners on one line */}
             {metrics.corners && (
               <div className="font-mono text-[9px] text-muted-foreground">
-                {metrics.corners.map((c, i) => `(${Math.round(c.x)},${Math.round(c.y)})`).join(' ')}
+                {metrics.corners.map((c) => `(${Math.round(c.x)},${Math.round(c.y)})`).join(' ')}
               </div>
             )}
           </>

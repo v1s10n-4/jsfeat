@@ -39,11 +39,10 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
       if (!ctx) continue;
 
       const stage = STAGES[si];
-      let srcData: Uint8Array | null = null;
+      let srcData: ArrayLike<number> | null = null;
 
       if (stage.id === 'gray') srcData = bufs.gray?.data ?? null;
       else if (stage.id === 'blurred') srcData = bufs.blurred?.data ?? null;
-      else if (stage.id === 'canny') srcData = bufs.gray?.data ?? null;
       else if (stage.id === 'edges') srcData = bufs.edges?.data ?? null;
 
       if (!srcData) continue;

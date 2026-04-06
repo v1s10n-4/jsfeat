@@ -16,8 +16,6 @@ import { Button } from '@/components/ui/button';
 // ---------------------------------------------------------------------------
 
 const LS_VERDICTS = 'detection-debug-verdicts';
-const LS_NOTES = 'detection-debug-notes';
-
 function loadVerdicts(): Record<string, Verdict> {
   try {
     const raw = localStorage.getItem(LS_VERDICTS);
@@ -36,21 +34,6 @@ function saveVerdicts(v: Record<string, Verdict>) {
   }
 }
 
-function loadNotes(): string {
-  try {
-    return localStorage.getItem(LS_NOTES) ?? '';
-  } catch {
-    return '';
-  }
-}
-
-function saveNotes(n: string) {
-  try {
-    localStorage.setItem(LS_NOTES, n);
-  } catch {
-    // ignore
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -209,13 +192,6 @@ export default function DevPage() {
     processingResolveRef.current = null;
   }, []);
 
-  function waitForProcessing(): Promise<void> {
-    return new Promise((resolve) => {
-      processingResolveRef.current = resolve;
-      // Fallback timeout in case the callback never fires
-      setTimeout(() => { resolve(); processingResolveRef.current = null; }, 2000);
-    });
-  }
 
   // -------------------------------------------------------------------------
   // Run all — accuracy-based pass/fail using ground truth

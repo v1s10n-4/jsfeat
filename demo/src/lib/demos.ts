@@ -18,7 +18,6 @@ import {
   warpAffine,
   findContours,
   approxPoly,
-  adaptiveThreshold,
 } from 'jsfeat/imgproc';
 import { fastCorners, yape06Detect, orbDescribe } from 'jsfeat/features';
 import { drawVideoFrame } from '@/lib/videoOrientation';
