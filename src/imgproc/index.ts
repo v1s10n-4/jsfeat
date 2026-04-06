@@ -19,3 +19,6 @@ export {
 } from './imgproc';
 
 export type { Contour } from './imgproc';
+
+export { detectLineSegments } from './lsd';
+export type { LineSegment } from './lsd';
