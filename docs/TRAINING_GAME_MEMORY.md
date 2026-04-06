@@ -102,3 +102,46 @@
 10. **The morph blob approach has a ceiling at ~37/48** — further gains need architectural changes.
 11. **Remaining 11 failures**: mostly "Detected but inaccurate" (blob overshoots), a few "No Card" (border-touching or extreme angles).
 12. **Research needed**: Hough line detection, perspective-aware corner refinement, or ML-based detection for the remaining 11.
+
+## LSD Experiment: Pure LSD & Hybrid Approaches — Ceiling Confirmed at 37/48
+
+### What Was Tried
+1. **LSD-only pipeline** (14/48): Replaced entire morph blob with LSD line segment detection on 3 channels (grayscale, warmth, chroma). Wood grain produces too many competing segments — quad grouping can't distinguish card lines from noise.
+2. **Size penalty scoring** (+10 passes, 4→14): Gaussian-like penalty around ideal card area (12% of frame). Prevents large background quads from outscoring card-sized ones.
+3. **Rectangularity checks** (no improvement): Opposite-side ratio and 90° angle checks filter bad quads but don't help find good ones.
+4. **Hybrid: morph blob ROI + LSD corners** (24-33/48): Morph blob finds card region, LSD finds precise corners within ROI. LSD quads diverge from morph detection causing regressions unless strictly proximity-checked, which prevents improvements.
+5. **Multi-radius fallback** (radius 8, 10 when no card found): Detects previously-missed cards but with 100-150px accuracy — not enough to pass 50px threshold.
+6. **Gradient-peak refinement** (~1px improvement): Scanning for strongest Scharr gradient perpendicular to each edge. Wood grain peaks mask card border peaks.
+7. **Centroid shrink** (regression): Pulling corners toward center moves good corners too.
+8. **Parallelogram correction** (regression): Assumes parallel opposite sides — fails with perspective distortion.
+9. **Extended scan range -80px** (regression): Finds noise Canny edges further out.
+10. **Equalization threshold 130** (24/48 regression): Breaks moderately dark images.
+11. **Lighter blur for color channels** (no change): Color edges are minor contribution.
+
+### Key Insights from LSD Experiment
+1. **LSD detects gradient ORIENTATION, not magnitude** — theoretically detects dark-on-dark edges. In practice, wood grain has equally consistent orientation, producing false segments.
+2. **The quad grouping is the bottleneck**, not LSD itself. With 200+ segments, finding the right 4 from ~12,000 combinations is a needle-in-haystack problem.
+3. **Morph blob gives WHERE the card is** (37/48), but wrong corners (50-170px off). LSD gives precise LINES but can't tell card lines from noise. Combining them requires solving the "which LSD lines are card borders" problem.
+4. **MacBook bezel at image bottom** creates the strongest, longest line segments — always dominates unless explicitly excluded (18% bottom margin).
+5. **Segment scoring by border-ness** (cross-edge contrast, isolation, position) is a promising direction (Option B branch exists but untested with morph ROI).
+6. **Gradient density ROI** (Option C branch) could constrain LSD to card-like regions without needing the morph blob.
+
+### The 11 Remaining Failures (detailed)
+| Image | Type | Distance | Root Cause |
+|-------|------|----------|------------|
+| Photo-25 | No Card | - | Card near left border, blob touches border |
+| Photo-26 | Detected | 86px | Extreme angle, blob overshoots |
+| Photo-27 | No Card | - | Extreme angle, blob fragments |
+| Photo-30 | Detected | 56px | BL corner 197px off — blob extends rightward |
+| Photo-31 | Detected | 169px | Blob extends below card (connects with desk) |
+| Photo-33 | Detected | 90px | Blob overshoots on wood |
+| Photo-34 | No Card | - | Blob doesn't form |
+| Photo-35 | Detected | 77px | Heavily rotated, blob overshoots |
+| +3 more | Unknown | - | Need identification |
+
+### What Would Actually Break Through 37/48
+1. **Bilateral filtering** instead of Gaussian blur — preserves edges while smoothing texture. The biggest untried classical CV approach. Could produce tighter morph blobs because card borders are preserved while wood grain is smoothed.
+2. **Segment scoring + morph ROI** — combine Option B (border-ness scoring of LSD segments) with the morph blob's ROI. Only consider high-border-score segments within the morph region.
+3. **Adaptive morph with color segmentation** — use color information (not just edges) to segment card from background before morphing.
+4. **ML-based corner refinement** — use a small CNN to refine corner positions from the detected region. Would need training data.
+5. **Warp + re-detect** — after initial detection, warp the perspective-corrected card back to frontal view, re-run detection on the rectified image for better corners.
