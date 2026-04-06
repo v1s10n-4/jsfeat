@@ -7,7 +7,7 @@
  */
 
 import { useRef, useEffect, useCallback, useState } from 'react';
-import { cardDetectionDemo, getCardDebugBuffers, setCardPipelineOverlays, resetCardTemporalState } from '@/lib/demos';
+import { cardDetectionDemo, getCardDebugBuffers, resetCardTemporalState } from '@/lib/demos';
 import { useProfiler } from '@/hooks/useProfiler';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -202,8 +202,6 @@ export default function DebugCanvas({
   // Pipeline overlay toggle side-effect
   // ---------------------------------------------------------------------------
   useEffect(() => {
-    setCardPipelineOverlays(showPipelineOverlays);
-
     // Re-run static image processing when the toggle changes
     if (!isWebcam && imageSrcRef.current) {
       const canvas = baseCanvasRef.current;

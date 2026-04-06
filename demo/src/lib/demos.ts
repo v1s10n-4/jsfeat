@@ -21,6 +21,7 @@ import {
 } from 'jsfeat/imgproc';
 import { fastCorners, yape06Detect, orbDescribe } from 'jsfeat/features';
 import { drawVideoFrame } from '@/lib/videoOrientation';
+import { DETECTION_DEFAULTS } from '@/lib/detection-constants';
 import { lucasKanade } from 'jsfeat/flow';
 import { ransac, createRansacParams, homography2d, affine2d } from 'jsfeat/motion';
 
@@ -1974,20 +1975,13 @@ let _cardScharr: Matrix | null = null;
 let _cardDebugInfo: string = '';
 // Temporal smoothing for stable bounding box
 let _cardSmoothedCorners: { x: number; y: number }[] | null = null;
-const SMOOTHING = 0.65; // 0 = no smoothing, 1 = freeze — higher = more stable
 let _cardGraceFrames = 0;
 let _cardPrevThreshold = 0; // smoothed adaptive threshold
 const CARD_HISTORY_LEN = 120;
 const _cardQualityHistory: number[] = [];
 let _cardLastRectFill = 0;
 let _cardLastAspect = 0;
-let _cardShowPipelineOverlays = true;
 let _cardLastContours: { points: { x: number; y: number }[]; boundingRect: { x: number; y: number; width: number; height: number } }[] = [];
-
-/** Toggle the pipeline's built-in debug overlays (thumbnail, quality chart, status text). */
-export function setCardPipelineOverlays(show: boolean) {
-  _cardShowPipelineOverlays = show;
-}
 
 /** Sort 4 corners into top-left, top-right, bottom-right, bottom-left order. */
 function sortCorners(pts: { x: number; y: number }[]): { x: number; y: number }[] {
@@ -2102,10 +2096,7 @@ const cardDetectionDemo: DemoDefinition = {
     { type: 'slider', key: 'minContourArea', label: 'Min Area', min: 200, max: 50000, step: 100, defaultNum: 1000 },
   ],
   setup(_canvas, _video, params) {
-    _cardParams = {
-      blurKernel: 9, cannyLow: 20, cannyHigh: 60, minContourArea: 1000,
-      ...params,
-    };
+    _cardParams = { ...DETECTION_DEFAULTS, ...params };
   },
   process(ctx, video, w, h, profiler) {
     // Skip drawVideoFrame when video has no content (e.g., dummy element for static images).
@@ -2130,7 +2121,7 @@ const cardDetectionDemo: DemoDefinition = {
     const gd = _cardGray!.data;
     let brightSum = 0;
     for (let i = 0; i < w * h; i++) brightSum += gd[i];
-    if (brightSum / (w * h) < 100) {
+    if (brightSum / (w * h) < _cardParams.equalizationThreshold) {
       equalizeHistogram(_cardGray!, _cardGray!);
     }
 
@@ -2138,7 +2129,7 @@ const cardDetectionDemo: DemoDefinition = {
     let ks = _cardParams.blurKernel ?? 9;
     if (ks % 2 === 0) ks += 1;
     // Use at least kernel 15 to suppress fine texture (wood grain, fabric, etc.)
-    const detKs = Math.max(ks, 15) | 1;
+    const detKs = Math.max(ks, _cardParams.minBlurKernel) | 1;
     gaussianBlur(_cardGray, _cardBlurred!, detKs, 0);
     profiler.end('blur');
 
@@ -2162,7 +2153,7 @@ const cardDetectionDemo: DemoDefinition = {
     const sd = _cardScharr.data;
     for (let i = 0; i < w * h; i++) {
       const mag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
-      if (mag > 30) ed[i] = 255;
+      if (mag > _cardParams.scharrThreshold) ed[i] = 255;
     }
 
     // Color-based edge detection using two channels:
@@ -2180,9 +2171,9 @@ const cardDetectionDemo: DemoDefinition = {
     scharrDerivatives(colorBuf, _cardScharr);
     for (let i = 0; i < w * h; i++) {
       const px = i % w, py = (i / w) | 0;
-      if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
+      if (px < _cardParams.warmthBorderMargin || py < _cardParams.warmthBorderMargin || px >= w - _cardParams.warmthBorderMargin || py >= h - _cardParams.warmthBorderMargin) continue;
       const wmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
-      if (wmag > 25) ed[i] = 255;
+      if (wmag > _cardParams.warmthThreshold) ed[i] = 255;
     }
 
     // Pass 2: Chroma (max-min of RGB) — detects color saturation transitions
@@ -2194,9 +2185,9 @@ const cardDetectionDemo: DemoDefinition = {
     scharrDerivatives(colorBuf, _cardScharr);
     for (let i = 0; i < w * h; i++) {
       const px = i % w, py = (i / w) | 0;
-      if (px < 30 || py < 30 || px >= w - 30 || py >= h - 30) continue;
+      if (px < _cardParams.warmthBorderMargin || py < _cardParams.warmthBorderMargin || px >= w - _cardParams.warmthBorderMargin || py >= h - _cardParams.warmthBorderMargin) continue;
       const cmag = Math.min(255, (Math.abs(sd[i * 2]) + Math.abs(sd[i * 2 + 1])) >> 3);
-      if (cmag > 30) ed[i] = 255;
+      if (cmag > _cardParams.chromaThreshold) ed[i] = 255;
     }
 
     // Restore grayscale Scharr for edge refinement
@@ -2205,48 +2196,28 @@ const cardDetectionDemo: DemoDefinition = {
     _cardGray!.data.set(_cardEdges!.data);
 
     // Morph: box blur connects nearby edges into solid blobs.
-    boxBlurGray(_cardEdges!, _cardBlurred!, 5);
+    boxBlurGray(_cardEdges!, _cardBlurred!, _cardParams.morphRadius);
     const bd = _cardBlurred!.data;
     let densitySum = 0;
     for (let i = 0; i < w * h; i++) densitySum += bd[i];
     const meanDensity = densitySum / (w * h);
-    const rawThresh = Math.max(8, meanDensity + 7);
+    const rawThresh = Math.max(_cardParams.morphThresholdMin, meanDensity + _cardParams.morphThresholdBias);
     // Smooth threshold across frames to prevent blob flickering
-    _cardPrevThreshold = _cardPrevThreshold > 0 ? _cardPrevThreshold * 0.7 + rawThresh * 0.3 : rawThresh;
+    _cardPrevThreshold = _cardPrevThreshold > 0 ? _cardPrevThreshold * _cardParams.morphSmoothing + rawThresh * (1 - _cardParams.morphSmoothing) : rawThresh;
     for (let i = 0; i < w * h; i++) ed[i] = bd[i] > _cardPrevThreshold ? 255 : 0;
 
     // Binary erosion: shrink the blob to remove thin background-merged edges.
     // Box blur the binary mask then re-threshold at 200 (~78%) — only thick regions survive.
-    boxBlurGray(_cardEdges!, _cardBlurred!, 2);
-    for (let i = 0; i < w * h; i++) ed[i] = bd[i] > 200 ? 255 : 0;
+    boxBlurGray(_cardEdges!, _cardBlurred!, _cardParams.erosionRadius);
+    for (let i = 0; i < w * h; i++) ed[i] = bd[i] > _cardParams.erosionThreshold ? 255 : 0;
 
     profiler.end('morph');
-
-    // Debug: pipeline output thumbnail (top-left)
-    if (_cardShowPipelineOverlays) {
-      const ds2 = 4, dw2 = (w / ds2) | 0, dh2 = (h / ds2) | 0;
-      const di2 = ctx.createImageData(dw2, dh2);
-      const dd2 = di2.data;
-      for (let dy2 = 0; dy2 < dh2; dy2++) {
-        for (let dx2 = 0; dx2 < dw2; dx2++) {
-          const si2 = (dy2 * ds2) * w + (dx2 * ds2);
-          const oi2 = (dy2 * dw2 + dx2) * 4;
-          const v2 = ed[si2];
-          dd2[oi2] = 0; dd2[oi2 + 1] = v2 ? 180 : 20; dd2[oi2 + 2] = 0; dd2[oi2 + 3] = 200;
-        }
-      }
-      ctx.putImageData(di2, 4, 4);
-      ctx.strokeStyle = '#ff0'; ctx.lineWidth = 1;
-      ctx.strokeRect(3, 3, dw2 + 2, dh2 + 2);
-      ctx.fillStyle = '#ff0'; ctx.font = '9px monospace'; ctx.textAlign = 'left';
-      ctx.fillText('pipeline', 6, dh2 + 16);
-    }
 
     // Find contours and pick the best card-shaped one
     profiler.start('contour');
     _cardDebugInfo = '';
     // Min area: at least 3% of frame (card must be visible enough)
-    const minArea = Math.max(_cardParams.minContourArea ?? 1000, w * h * 0.03);
+    const minArea = Math.max(_cardParams.minContourArea ?? 1000, w * h * _cardParams.minAreaRatio);
 
     let detected = false;
     let cardCorners: { x: number; y: number }[] = [];
@@ -2256,14 +2227,14 @@ const cardDetectionDemo: DemoDefinition = {
 
     let bestScore = 0;
     for (const contour of contours) {
-      if (contour.area < minArea || contour.area > w * h * 0.4) continue;
+      if (contour.area < minArea || contour.area > w * h * _cardParams.maxAreaRatio) continue;
 
       const br = contour.boundingRect;
       // Skip border-touching contours (desk shadows, frame edges)
-      if (br.x <= 3 || br.y <= 3 || br.x + br.width >= w - 3 || br.y + br.height >= h - 3) continue;
+      if (br.x <= _cardParams.borderMargin || br.y <= _cardParams.borderMargin || br.x + br.width >= w - _cardParams.borderMargin || br.y + br.height >= h - _cardParams.borderMargin) continue;
 
       const aspect = Math.min(br.width, br.height) / Math.max(br.width, br.height);
-      if (aspect < 0.35) continue;
+      if (aspect < _cardParams.minAspect) continue;
 
       // Convex hull first to eliminate concavities, then simplify to 4-sided polygon.
       // Simple Graham scan on contour points.
@@ -2330,8 +2301,7 @@ const cardDetectionDemo: DemoDefinition = {
       }
       if (poly.length < 4) continue;
 
-      const targetAspect = 5 / 7; // 0.714
-      const aspectMatch = 1 - Math.abs(aspect - targetAspect) * 3;
+      const aspectMatch = 1 - Math.abs(aspect - _cardParams.targetAspect) * 3;
       if (aspectMatch < 0) continue; // aspect ratio too far from 5:7
 
       // Score: strongly prefer large filled contours with good 5:7 aspect
@@ -2344,7 +2314,7 @@ const cardDetectionDemo: DemoDefinition = {
         const prevCy = _cardSmoothedCorners.reduce((s, p) => s + p.y, 0) / 4;
         const curCx = br.x + br.width / 2, curCy = br.y + br.height / 2;
         const dist = Math.sqrt((curCx - prevCx) ** 2 + (curCy - prevCy) ** 2);
-        if (dist < 100) persistence = 1.5; // boost nearby contours
+        if (dist < _cardParams.persistenceDistance) persistence = _cardParams.persistenceBoost; // boost nearby contours
       }
       const score = contour.area * Math.max(0.3, rectFill) * (0.3 + aspectMatch) * ptPenalty * persistence;
 
@@ -2363,7 +2333,7 @@ const cardDetectionDemo: DemoDefinition = {
             sides.push(Math.sqrt((sb.x - sa.x) ** 2 + (sb.y - sa.y) ** 2));
           }
           const maxS = Math.max(...sides), minS = Math.min(...sides);
-          if (minS <= maxS * 0.2) {
+          if (minS <= maxS * _cardParams.sideRatioMin) {
             cardCorners = buildCardCorners(br);
           } else if (hullPts.length >= 8) {
             // Line fitting: fit lines to hull segments between corners, intersect for precision
@@ -2402,17 +2372,17 @@ const cardDetectionDemo: DemoDefinition = {
                   const c1perp = useX ? c1.y : c1.x;
                   const fitPerp = m * c1proj + b2;
                   const shift = fitPerp - c1perp;
-                  if (Math.abs(shift) < 30) {
-                    if (useX) refined[si].y += shift * 0.9;
-                    else refined[si].x += shift * 0.9;
+                  if (Math.abs(shift) < _cardParams.lineFitMaxShift) {
+                    if (useX) refined[si].y += shift * _cardParams.lineFitFactor;
+                    else refined[si].x += shift * _cardParams.lineFitFactor;
                   }
                   const c2proj = useX ? c2.x : c2.y;
                   const c2perp = useX ? c2.y : c2.x;
                   const fitPerp2 = m * c2proj + b2;
                   const shift2 = fitPerp2 - c2perp;
-                  if (Math.abs(shift2) < 30) {
-                    if (useX) refined[(si + 1) % 4].y += shift2 * 0.9;
-                    else refined[(si + 1) % 4].x += shift2 * 0.9;
+                  if (Math.abs(shift2) < _cardParams.lineFitMaxShift) {
+                    if (useX) refined[(si + 1) % 4].y += shift2 * _cardParams.lineFitFactor;
+                    else refined[(si + 1) % 4].x += shift2 * _cardParams.lineFitFactor;
                   }
                 }
               }
@@ -2442,10 +2412,10 @@ const cardDetectionDemo: DemoDefinition = {
 
         // Sample along edge, scan perpendicularly for nearest Canny edge
         const offsets: number[] = [];
-        for (let si = 1; si <= 16; si++) {
-          const t = si / 18;
+        for (let si = 1; si <= _cardParams.refineSamples; si++) {
+          const t = si / (_cardParams.refineSamples + 2);
           const sx = p1.x + edx * t, sy = p1.y + edy * t;
-          for (let sd = -40; sd <= 15; sd++) {
+          for (let sd = _cardParams.refineScanMin; sd <= _cardParams.refineScanMax; sd++) {
             const px = Math.round(sx + nx * sd);
             const py = Math.round(sy + ny * sd);
             if (px >= 0 && py >= 0 && px < w && py < h && cannyOrig[py * w + px] > 0) {
@@ -2482,13 +2452,13 @@ const cardDetectionDemo: DemoDefinition = {
           const dy2 = cardCorners[i].y - _cardSmoothedCorners[i].y;
           maxJump = Math.max(maxJump, Math.sqrt(dx2 * dx2 + dy2 * dy2));
         }
-        if (maxJump > 80) {
+        if (maxJump > _cardParams.jumpThreshold) {
           // Big jump — snap immediately
           _cardSmoothedCorners = cardCorners.map(p => ({ ...p }));
         } else {
           for (let i = 0; i < 4; i++) {
-            _cardSmoothedCorners[i].x = _cardSmoothedCorners[i].x * SMOOTHING + cardCorners[i].x * (1 - SMOOTHING);
-            _cardSmoothedCorners[i].y = _cardSmoothedCorners[i].y * SMOOTHING + cardCorners[i].y * (1 - SMOOTHING);
+            _cardSmoothedCorners[i].x = _cardSmoothedCorners[i].x * _cardParams.smoothingFactor + cardCorners[i].x * (1 - _cardParams.smoothingFactor);
+            _cardSmoothedCorners[i].y = _cardSmoothedCorners[i].y * _cardParams.smoothingFactor + cardCorners[i].y * (1 - _cardParams.smoothingFactor);
           }
         }
         cardCorners = _cardSmoothedCorners;
@@ -2497,7 +2467,7 @@ const cardDetectionDemo: DemoDefinition = {
       }
     } else if (!detected && _cardSmoothedCorners) {
       _cardGraceFrames++;
-      if (_cardGraceFrames > 12) {
+      if (_cardGraceFrames > _cardParams.graceFrames) {
         _cardSmoothedCorners = null;
         _cardGraceFrames = 0;
       } else {
@@ -2506,132 +2476,20 @@ const cardDetectionDemo: DemoDefinition = {
       }
     }
 
-    // Draw card preview and overlay
-    if (_cardShowPipelineOverlays && detected && cardCorners.length === 4) {
-      // 1. FIRST: Color perspective warp for the preview (before drawing any overlays)
-      profiler.start('warp');
-
-      // Standard card proportions
-      const cardW = 125;
-      const cardH = 175;
-      const padding = 8;
-      const cardX = w - cardW - padding;
-      const cardY = h - cardH - padding;
-
-      // Get source pixels BEFORE drawing green quad
-      const srcImgData = ctx.getImageData(0, 0, w, h);
-      const srcPx = srcImgData.data;
-
-      // Compute homography: from preview rect → video quad (for backward mapping)
-      const H = getPerspectiveTransform(
-        [{ x: 0, y: 0 }, { x: cardW - 1, y: 0 }, { x: cardW - 1, y: cardH - 1 }, { x: 0, y: cardH - 1 }],
-        [cardCorners[0], cardCorners[1], cardCorners[2], cardCorners[3]],
-      );
-
-      // Color perspective warp with bilinear interpolation
-      const outImg = ctx.createImageData(cardW, cardH);
-      const out = outImg.data;
-      for (let dy = 0; dy < cardH; dy++) {
-        for (let dx = 0; dx < cardW; dx++) {
-          const ww = H[6] * dx + H[7] * dy + H[8];
-          if (Math.abs(ww) < 1e-8) continue;
-          const sx = (H[0] * dx + H[1] * dy + H[2]) / ww;
-          const sy = (H[3] * dx + H[4] * dy + H[5]) / ww;
-          const ix = sx | 0, iy = sy | 0;
-          if (ix >= 0 && iy >= 0 && ix < w - 1 && iy < h - 1) {
-            const a = sx - ix, b2 = sy - iy;
-            const off = (iy * w + ix) * 4;
-            const di = (dy * cardW + dx) * 4;
-            for (let c = 0; c < 3; c++) {
-              out[di + c] = ((srcPx[off + c] * (1 - a) + srcPx[off + 4 + c] * a) * (1 - b2) +
-                             (srcPx[off + w * 4 + c] * (1 - a) + srcPx[off + w * 4 + 4 + c] * a) * b2) | 0;
-            }
-            out[di + 3] = 255;
-          }
-        }
-      }
-      profiler.end('warp');
-
-      // Draw preview background + label
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(cardX - 2, cardY - 18, cardW + 4, cardH + 20);
-      ctx.fillStyle = '#00ff00';
-      ctx.font = '11px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Detected Card', cardX + cardW / 2, cardY - 5);
-
-      // Draw perspective-corrected COLOR card
-      ctx.putImageData(outImg, cardX, cardY);
-      ctx.strokeStyle = '#00ff00';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(cardX - 1, cardY - 1, cardW + 2, cardH + 2);
-
-      // 2. THEN: Draw green quadrilateral overlay (on top of everything)
-      ctx.strokeStyle = '#00ff00';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(cardCorners[0].x, cardCorners[0].y);
-      for (let i = 1; i < 4; i++) {
-        ctx.lineTo(cardCorners[i].x, cardCorners[i].y);
-      }
-      ctx.closePath();
-      ctx.stroke();
-
-      // Draw corner circles
-      ctx.fillStyle = '#00ff00';
-      for (let i = 0; i < 4; i++) {
-        ctx.beginPath();
-        ctx.arc(cardCorners[i].x, cardCorners[i].y, 5, 0, Math.PI * 2);
-        ctx.fill();
-      }
+    // Quality score computation (kept for debug buffers; drawing moved to DebugCanvas)
+    let qScore = 0;
+    if (detected && cardCorners.length === 4) {
+      const topLen = Math.sqrt((cardCorners[1].x - cardCorners[0].x) ** 2 + (cardCorners[1].y - cardCorners[0].y) ** 2);
+      const botLen = Math.sqrt((cardCorners[2].x - cardCorners[3].x) ** 2 + (cardCorners[2].y - cardCorners[3].y) ** 2);
+      const leftLen = Math.sqrt((cardCorners[3].x - cardCorners[0].x) ** 2 + (cardCorners[3].y - cardCorners[0].y) ** 2);
+      const rightLen = Math.sqrt((cardCorners[2].x - cardCorners[1].x) ** 2 + (cardCorners[2].y - cardCorners[1].y) ** 2);
+      const avgW = (topLen + botLen) / 2;
+      const avgH = (leftLen + rightLen) / 2;
+      const quadAspect = Math.min(avgW, avgH) / Math.max(avgW, avgH);
+      qScore = Math.max(0, 1 - Math.abs(quadAspect - _cardParams.targetAspect) * 3);
     }
-
-    if (_cardShowPipelineOverlays) {
-      // Status
-      ctx.fillStyle = detected ? '#0f0' : '#f66';
-      ctx.font = '12px sans-serif';
-      ctx.textAlign = 'left';
-      // Show debug info about best candidate
-      let debugInfo = '';
-      if (_cardDebugInfo) debugInfo = ` | ${_cardDebugInfo}`;
-      ctx.fillText(
-        (detected ? 'Card detected' : 'No card found') + debugInfo,
-        8, h - 8,
-      );
-
-      // Quality = (1 - ratio deviation from 5:7) using actual quad side lengths
-      // 100% means detected quad has exactly 5:7 aspect ratio
-      let qScore = 0;
-      if (detected && cardCorners.length === 4) {
-        // Compute average width (top+bottom edges) and height (left+right edges)
-        const topLen = Math.sqrt((cardCorners[1].x - cardCorners[0].x) ** 2 + (cardCorners[1].y - cardCorners[0].y) ** 2);
-        const botLen = Math.sqrt((cardCorners[2].x - cardCorners[3].x) ** 2 + (cardCorners[2].y - cardCorners[3].y) ** 2);
-        const leftLen = Math.sqrt((cardCorners[3].x - cardCorners[0].x) ** 2 + (cardCorners[3].y - cardCorners[0].y) ** 2);
-        const rightLen = Math.sqrt((cardCorners[2].x - cardCorners[1].x) ** 2 + (cardCorners[2].y - cardCorners[1].y) ** 2);
-        const avgW = (topLen + botLen) / 2;
-        const avgH = (leftLen + rightLen) / 2;
-        const quadAspect = Math.min(avgW, avgH) / Math.max(avgW, avgH);
-        qScore = Math.max(0, 1 - Math.abs(quadAspect - 5 / 7) * 3);
-      }
-      _cardQualityHistory.push(qScore);
-      if (_cardQualityHistory.length > CARD_HISTORY_LEN) _cardQualityHistory.shift();
-      const chartW = Math.min(_cardQualityHistory.length, 120);
-      const chartH = 24;
-      const chartX = w - chartW - 8;
-      const chartY = 8;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(chartX - 1, chartY - 1, chartW + 2, chartH + 12);
-      for (let ci = 0; ci < chartW; ci++) {
-        const val = _cardQualityHistory[_cardQualityHistory.length - chartW + ci];
-        const barH = val * chartH;
-        ctx.fillStyle = val > 0.35 ? '#0f0' : val > 0.1 ? '#ff0' : '#f00';
-        ctx.fillRect(chartX + ci, chartY + chartH - barH, 1, barH);
-      }
-      ctx.fillStyle = '#aaa';
-      ctx.font = '8px monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(`quality: ${(qScore * 100).toFixed(0)}%`, chartX, chartY + chartH + 9);
-    }
+    _cardQualityHistory.push(qScore);
+    if (_cardQualityHistory.length > CARD_HISTORY_LEN) _cardQualityHistory.shift();
   },
   onParamChange(key, value) {
     _cardParams[key] = value;
@@ -2663,6 +2521,7 @@ export function getCardDebugBuffers() {
     edges: _cardEdges,
     blurred: _cardBlurred,
     smoothedCorners: _cardSmoothedCorners,
+    detected: _cardSmoothedCorners !== null,
     debugInfo: _cardDebugInfo,
     qualityHistory: _cardQualityHistory,
     lastRectFill: _cardLastRectFill,
