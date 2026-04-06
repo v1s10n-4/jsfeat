@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import DebugCanvas, { type DetectionMetrics, type CornerTuple } from '@/components/dev/DebugCanvas';
 import PipelineStages from '@/components/dev/PipelineStages';
-import DetectionPanel, { DEFAULT_PARAMS } from '@/components/dev/DetectionPanel';
+import DetectionPanel from '@/components/dev/DetectionPanel';
 import TestImageStrip, { type Verdict } from '@/components/dev/TestImageStrip';
 import { testImages, computeAccuracy } from '@/lib/test-manifest';
 import type { GroundTruth } from '@/lib/test-manifest';
 import { cardDetectionDemo, getCardDebugBuffers, resetCardTemporalState } from '@/lib/demos';
+import { DETECTION_DEFAULTS } from '@/lib/detection-constants';
 import { useWebcam } from '@/hooks/useWebcam';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
@@ -45,7 +46,7 @@ export default function DevPage() {
     testImages[0]?.path ?? null,
   );
   const [frozen, setFrozen] = useState(false);
-  const [params, setParams] = useState<Record<string, number>>({ ...DEFAULT_PARAMS });
+  const [params, setParams] = useState<Record<string, number>>({ ...DETECTION_DEFAULTS });
   const [scale, setScale] = useState(1);
   const [metrics, setMetrics] = useState<DetectionMetrics | null>(null);
   const [renderTick, setRenderTick] = useState(0);
@@ -104,8 +105,8 @@ export default function DevPage() {
   // Reset params
   // -------------------------------------------------------------------------
   const handleResetParams = useCallback(() => {
-    setParams({ ...DEFAULT_PARAMS });
-    for (const [key, value] of Object.entries(DEFAULT_PARAMS)) {
+    setParams({ ...DETECTION_DEFAULTS });
+    for (const [key, value] of Object.entries(DETECTION_DEFAULTS)) {
       cardDetectionDemo.onParamChange?.(key, value);
     }
   }, []);

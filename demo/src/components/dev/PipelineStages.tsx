@@ -77,7 +77,7 @@ export default function PipelineStages({ width, height, renderTick }: PipelineSt
   return (
     <div>
       <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Pipeline Stages</h3>
-      <div className="grid grid-cols-2 gap-1">
+      <div className="grid grid-cols-3 gap-1">
         {STAGES.map((stage, i) => (
           <div key={stage.id}>
             <div className="text-[9px] text-muted-foreground">{stage.label}</div>

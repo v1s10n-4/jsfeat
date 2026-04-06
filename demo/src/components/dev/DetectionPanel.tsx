@@ -2,14 +2,11 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { DETECTION_DEFAULTS, MAIN_SLIDERS, ADVANCED_SLIDERS } from '@/lib/detection-constants';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import type { DetectionMetrics } from './DebugCanvas';
 
-export const DEFAULT_PARAMS: Record<string, number> = {
-  blurKernel: 9,
-  cannyLow: 20,
-  cannyHigh: 60,
-  minContourArea: 1000,
-};
+export const DEFAULT_PARAMS: Record<string, number> = { ...DETECTION_DEFAULTS };
 
 interface DetectionPanelProps {
   params: Record<string, number>;
@@ -19,13 +16,6 @@ interface DetectionPanelProps {
   verdict: 'pass' | 'fail' | 'untested';
   onRetest: () => void;
 }
-
-const SLIDERS = [
-  { key: 'blurKernel', label: 'Blur Kernel', min: 1, max: 31, step: 2 },
-  { key: 'cannyLow', label: 'Canny Low', min: 1, max: 100, step: 1 },
-  { key: 'cannyHigh', label: 'Canny High', min: 1, max: 200, step: 1 },
-  { key: 'minContourArea', label: 'Min Area', min: 100, max: 10000, step: 100 },
-] as const;
 
 export default function DetectionPanel({
   params,
@@ -37,38 +27,6 @@ export default function DetectionPanel({
 }: DetectionPanelProps) {
   return (
     <div className="space-y-3">
-      {/* Controls */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Controls
-          </h3>
-          <Button variant="outline" size="xs" onClick={onResetParams}>
-            Reset
-          </Button>
-        </div>
-        {SLIDERS.map(({ key, label, min, max, step }) => (
-          <div key={key} className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-[10px] text-muted-foreground">{label}</Label>
-              <span className="text-[10px] font-mono text-foreground">
-                {params[key] ?? DEFAULT_PARAMS[key]}
-              </span>
-            </div>
-            <Slider
-              min={min}
-              max={max}
-              step={step}
-              value={[params[key] ?? DEFAULT_PARAMS[key]]}
-              onValueChange={(value) => {
-                const v = Array.isArray(value) ? value[0] : value;
-                if (typeof v === 'number') onParamChange(key, v);
-              }}
-            />
-          </div>
-        ))}
-      </div>
-
       {/* Detection Metrics — compact layout */}
       <div className="space-y-1">
         <div className="flex items-center justify-between">
@@ -111,7 +69,70 @@ export default function DetectionPanel({
         )}
       </div>
 
+      {/* Controls */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Controls
+          </h3>
+          <Button variant="outline" size="xs" onClick={onResetParams}>
+            Reset
+          </Button>
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+          {MAIN_SLIDERS.map(({ key, label, min, max, step }) => (
+            <div key={key} className="space-y-0.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] text-muted-foreground">{label}</Label>
+                <span className="text-[10px] font-mono">{params[key] ?? DETECTION_DEFAULTS[key]}</span>
+              </div>
+              <Slider min={min} max={max} step={step}
+                value={[params[key] ?? DETECTION_DEFAULTS[key]]}
+                onValueChange={(v) => { const val = Array.isArray(v) ? v[0] : v; if (typeof val === 'number') onParamChange(key, val); }}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Advanced Settings Sheet */}
+        <Sheet modal={false}>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm" className="w-full mt-2">
+              ⚙ Advanced Settings
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="right" className="overflow-y-auto w-80">
+            <SheetHeader>
+              <SheetTitle>Advanced Detection Settings</SheetTitle>
+            </SheetHeader>
+            <div className="space-y-4 mt-4">
+              {ADVANCED_SLIDERS.map(({ section, sliders }) => (
+                <div key={section}>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-2">{section}</h4>
+                  <div className="space-y-2">
+                    {sliders.map(({ key, label, min, max, step }) => (
+                      <div key={key} className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-[10px]">{label}</Label>
+                          <span className="text-[10px] font-mono">{params[key] ?? DETECTION_DEFAULTS[key]}</span>
+                        </div>
+                        <Slider min={min} max={max} step={step}
+                          value={[params[key] ?? DETECTION_DEFAULTS[key]]}
+                          onValueChange={(v) => { const val = Array.isArray(v) ? v[0] : v; if (typeof val === 'number') onParamChange(key, val); }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <Button variant="outline" size="sm" className="w-full" onClick={onResetParams}>
+                Reset All to Defaults
+              </Button>
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+
     </div>
   );
 }
-

@@ -57,7 +57,7 @@ export default function TestImageStrip({
         <div className="ml-auto">
           <Button
             size="sm"
-            variant="outline"
+            variant="default"
             onClick={onRunAll}
             disabled={running}
           >
