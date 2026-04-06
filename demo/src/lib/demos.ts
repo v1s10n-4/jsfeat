@@ -2404,16 +2404,16 @@ const cardDetectionDemo: DemoDefinition = {
                   const fitPerp = m * c1proj + b2;
                   const shift = fitPerp - c1perp;
                   if (Math.abs(shift) < 30) {
-                    if (useX) refined[si].y += shift * 0.7;
-                    else refined[si].x += shift * 0.7;
+                    if (useX) refined[si].y += shift * 0.9;
+                    else refined[si].x += shift * 0.9;
                   }
                   const c2proj = useX ? c2.x : c2.y;
                   const c2perp = useX ? c2.y : c2.x;
                   const fitPerp2 = m * c2proj + b2;
                   const shift2 = fitPerp2 - c2perp;
                   if (Math.abs(shift2) < 30) {
-                    if (useX) refined[(si + 1) % 4].y += shift2 * 0.5;
-                    else refined[(si + 1) % 4].x += shift2 * 0.5;
+                    if (useX) refined[(si + 1) % 4].y += shift2 * 0.9;
+                    else refined[(si + 1) % 4].x += shift2 * 0.9;
                   }
                 }
               }
