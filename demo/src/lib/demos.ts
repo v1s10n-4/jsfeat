@@ -1984,6 +1984,16 @@ let _cardLastAspect = 0;
 let _cardShowPipelineOverlays = true;
 let _cardLastContours: { points: { x: number; y: number }[]; boundingRect: { x: number; y: number; width: number; height: number } }[] = [];
 
+// ORB template bank for cross-image matching
+interface OrbTemplate {
+  keypoints: { x: number; y: number }[];
+  descriptors: Uint8Array; // raw descriptor data, 32 bytes per keypoint
+  count: number;
+  corners: { x: number; y: number }[]; // the 4 card corners that produced this template
+}
+const _cardOrbTemplates: OrbTemplate[] = [];
+const MAX_TEMPLATES = 10;
+
 /** Toggle the pipeline's built-in debug overlays (thumbnail, quality chart, status text). */
 export function setCardPipelineOverlays(show: boolean) {
   _cardShowPipelineOverlays = show;
@@ -2088,6 +2098,96 @@ function getPerspectiveTransform(
   for (let i = 0; i < 8; i++) H[i] = h[i];
   H[8] = 1;
   return H;
+}
+
+// Hamming distance between two 32-byte ORB descriptors
+function hammingDist(d1: ArrayLike<number>, off1: number, d2: ArrayLike<number>, off2: number): number {
+  let dist = 0;
+  for (let i = 0; i < 32; i++) {
+    let v = d1[off1 + i] ^ d2[off2 + i];
+    v = v - ((v >> 1) & 0x55555555);
+    v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+    dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
+  }
+  return dist;
+}
+
+// Extract ORB features from a grayscale image region
+function extractOrbFeatures(
+  gray: Matrix,
+  maxFeatures: number = 300,
+): { keypoints: { x: number; y: number }[]; descriptors: Matrix; count: number } | null {
+  const corners: Keypoint[] = [];
+  for (let i = 0; i < maxFeatures + 100; i++) corners.push(new Keypoint());
+
+  const count = fastCorners(gray, corners, 20, 3);
+  if (count < 10) return null;
+
+  // Sort by score, keep top N
+  const sorted = corners.slice(0, count).sort((a, b) => b.score - a.score);
+  const nFeatures = Math.min(sorted.length, maxFeatures);
+
+  // ORB needs keypoint angles — compute using intensity centroid
+  for (let i = 0; i < nFeatures; i++) {
+    const kp = sorted[i];
+    const x = Math.round(kp.x), y = Math.round(kp.y);
+    const gw = gray.cols, gh = gray.rows;
+    const d = gray.data;
+    // Intensity centroid in 7x7 patch
+    let m01 = 0, m10 = 0;
+    for (let dy = -3; dy <= 3; dy++) {
+      for (let dx = -3; dx <= 3; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && nx < gw && ny >= 0 && ny < gh) {
+          const val = d[ny * gw + nx];
+          m10 += dx * val;
+          m01 += dy * val;
+        }
+      }
+    }
+    kp.angle = Math.atan2(m01, m10);
+  }
+
+  const descriptors = new Matrix(32, maxFeatures, U8C1);
+  orbDescribe(gray, sorted, nFeatures, descriptors);
+
+  const keypoints = sorted.slice(0, nFeatures).map(kp => ({ x: kp.x, y: kp.y }));
+  return { keypoints, descriptors, count: nFeatures };
+}
+
+// Match ORB features between scene and template, return matched point pairs
+function matchOrbFeatures(
+  sceneKp: { x: number; y: number }[],
+  sceneDesc: Matrix,
+  sceneCount: number,
+  tmpl: OrbTemplate,
+  matchThreshold: number = 48,
+): { from: { x: number; y: number }[]; to: { x: number; y: number }[] } {
+  const from: { x: number; y: number }[] = [];
+  const to: { x: number; y: number }[] = [];
+  const sd = sceneDesc.data;
+  const td = tmpl.descriptors;
+
+  for (let i = 0; i < sceneCount; i++) {
+    let bestDist = 256, secondBest = 256;
+    let bestIdx = -1;
+    for (let j = 0; j < tmpl.count; j++) {
+      const dist = hammingDist(sd, i * 32, td, j * 32);
+      if (dist < bestDist) {
+        secondBest = bestDist;
+        bestDist = dist;
+        bestIdx = j;
+      } else if (dist < secondBest) {
+        secondBest = dist;
+      }
+    }
+    // Lowe's ratio test: best match must be significantly better than second best
+    if (bestDist < matchThreshold && bestIdx >= 0 && bestDist < secondBest * 0.75) {
+      from.push(tmpl.keypoints[bestIdx]);
+      to.push(sceneKp[i]);
+    }
+  }
+  return { from, to };
 }
 
 const cardDetectionDemo: DemoDefinition = {
@@ -2428,6 +2528,71 @@ const cardDetectionDemo: DemoDefinition = {
     }
     profiler.end('contour');
 
+    // ORB fallback: when morph blob fails, try matching against template bank
+    if (!detected && _cardOrbTemplates.length > 0) {
+      const sceneOrb = extractOrbFeatures(_cardBlurred!);
+      if (sceneOrb && sceneOrb.count >= 15) {
+        let bestInliers = 0;
+        let bestCorners: { x: number; y: number }[] | null = null;
+
+        for (const tmpl of _cardOrbTemplates) {
+          const { from, to } = matchOrbFeatures(
+            sceneOrb.keypoints, sceneOrb.descriptors, sceneOrb.count,
+            tmpl, 48
+          );
+
+          if (from.length < 8) continue; // need at least 8 matches for reliable homography
+
+          // RANSAC homography
+          const homoModel = new Matrix(3, 3, F32C1);
+          const rp = createRansacParams(4, 3, 0.5, 0.99);
+          const mask = new Matrix(from.length, 1, U8C1);
+          const found = ransac(rp, homography2d, from, to, from.length, homoModel, mask, 1000);
+
+          if (found) {
+            // Count inliers
+            let inliers = 0;
+            for (let mi = 0; mi < from.length; mi++) {
+              if (mask.data[mi]) inliers++;
+            }
+
+            if (inliers > bestInliers && inliers >= 10) {
+              bestInliers = inliers;
+
+              // Transform template corners through homography to get scene corners
+              const H = homoModel.data;
+              const transformedCorners: { x: number; y: number }[] = [];
+              for (const tc of tmpl.corners) {
+                const denom = H[6] * tc.x + H[7] * tc.y + H[8];
+                if (Math.abs(denom) < 1e-6) continue;
+                transformedCorners.push({
+                  x: (H[0] * tc.x + H[1] * tc.y + H[2]) / denom,
+                  y: (H[3] * tc.x + H[4] * tc.y + H[5]) / denom,
+                });
+              }
+
+              if (transformedCorners.length === 4) {
+                // Validate: corners must be inside image and form a reasonable quad
+                let valid = true;
+                for (const c of transformedCorners) {
+                  if (c.x < 0 || c.x >= w || c.y < 0 || c.y >= h) { valid = false; break; }
+                }
+                if (valid) {
+                  bestCorners = sortCorners(transformedCorners);
+                }
+              }
+            }
+          }
+        }
+
+        if (bestCorners) {
+          detected = true;
+          cardCorners = bestCorners;
+          _cardDebugInfo = `ORB inliers=${bestInliers} templates=${_cardOrbTemplates.length}`;
+        }
+      }
+    }
+
     // Refine quad: for each edge, scan perpendicular to find actual Canny border
     if (detected && cardCorners.length === 4) {
       const cannyOrig = _cardGray!.data;
@@ -2467,6 +2632,44 @@ const cardDetectionDemo: DemoDefinition = {
             x: cardCorners[ci].x + shifts[ci].x / shifts[ci].n,
             y: cardCorners[ci].y + shifts[ci].y / shifts[ci].n,
           };
+        }
+      }
+    }
+
+    // ORB: capture template when card is detected
+    if (detected && cardCorners.length === 4 && _cardOrbTemplates.length < MAX_TEMPLATES) {
+      // Check this detection isn't too similar to an existing template
+      let isDuplicate = false;
+      for (const tmpl of _cardOrbTemplates) {
+        let totalDist = 0;
+        for (let ci = 0; ci < 4; ci++) {
+          totalDist += Math.sqrt(
+            (cardCorners[ci].x - tmpl.corners[ci].x) ** 2 +
+            (cardCorners[ci].y - tmpl.corners[ci].y) ** 2
+          );
+        }
+        if (totalDist / 4 < 30) { isDuplicate = true; break; } // too close to existing template
+      }
+
+      if (!isDuplicate) {
+        // Extract ORB features from the blurred grayscale
+        const orbResult = extractOrbFeatures(_cardBlurred!);
+        if (orbResult && orbResult.count >= 20) {
+          // Save raw descriptor bytes
+          const descCopy = new Uint8Array(orbResult.count * 32);
+          descCopy.set(new Uint8Array(orbResult.descriptors.data.buffer, 0, orbResult.count * 32));
+
+          _cardOrbTemplates.push({
+            keypoints: orbResult.keypoints,
+            descriptors: descCopy,
+            count: orbResult.count,
+            corners: cardCorners.map(c => ({ ...c })),
+          });
+
+          // Keep only the most recent templates
+          if (_cardOrbTemplates.length > MAX_TEMPLATES) {
+            _cardOrbTemplates.shift();
+          }
         }
       }
     }
@@ -2645,6 +2848,7 @@ const cardDetectionDemo: DemoDefinition = {
     _cardGraceFrames = 0;
     _cardPrevThreshold = 0;
     _cardLastContours = [];
+    _cardOrbTemplates.length = 0;
   },
 };
 
