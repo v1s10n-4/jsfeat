@@ -1992,7 +1992,7 @@ interface OrbTemplate {
   corners: { x: number; y: number }[]; // the 4 card corners that produced this template
 }
 const _cardOrbTemplates: OrbTemplate[] = [];
-const MAX_TEMPLATES = 10;
+const MAX_TEMPLATES = 5;
 
 /** Toggle the pipeline's built-in debug overlays (thumbnail, quality chart, status text). */
 export function setCardPipelineOverlays(show: boolean) {
@@ -2115,10 +2115,12 @@ function hammingDist(d1: ArrayLike<number>, off1: number, d2: ArrayLike<number>,
 // Extract ORB features from a grayscale image region
 function extractOrbFeatures(
   gray: Matrix,
-  maxFeatures: number = 300,
+  maxFeatures: number = 150,
 ): { keypoints: { x: number; y: number }[]; descriptors: Matrix; count: number } | null {
+  // Pre-allocate enough keypoints for the full image (FAST can find thousands)
+  const maxCorners = Math.min(gray.cols * gray.rows / 10, 5000);
   const corners: Keypoint[] = [];
-  for (let i = 0; i < maxFeatures + 100; i++) corners.push(new Keypoint());
+  for (let i = 0; i < maxCorners; i++) corners.push(new Keypoint());
 
   const count = fastCorners(gray, corners, 20, 3);
   if (count < 10) return null;
